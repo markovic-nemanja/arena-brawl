@@ -31,3 +31,7 @@ class AIController:
         if distance == 0:
             return 0, 0
         return dx / distance, dy / distance
+    
+    def get_action(self, keys, player, opponent):
+        distance = math.hypot(opponent.x - player.x, opponent.y - player.y)
+        return distance <= self.attack_range
