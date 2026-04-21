@@ -2,17 +2,17 @@ import pygame
 import settings as S
 
 class Player:
-    def __init__(self, x, y, color):
+    def __init__(self, x, y, color, controller):
         self.x = x
         self.y = y
         self.color = color
+        self.controller = controller
         self.hp = S.PLAYER_MAX_HP
         
-    def update(self, keys, up, down, left, right):
-        if keys[up]: self.y -= S.PLAYER_SPEED
-        if keys[down]: self.y += S.PLAYER_SPEED
-        if keys[left]: self.x -= S.PLAYER_SPEED
-        if keys[right]: self.x += S.PLAYER_SPEED
+    def update(self, keys, opponent):
+        dx, dy = self.controller.get_movement(keys, self, opponent)
+        self.x += dx * S.PLAYER_SPEED
+        self.y += dy * S.PLAYER_SPEED
         
         self.x = max(S.ARENA_MARGIN + 28, min(S.SCREEN_W - S.ARENA_MARGIN - 28, self.x))
         self.y = max(S.ARENA_MARGIN + 28, min(S.SCREEN_H - S.ARENA_MARGIN - 28, self.y))
