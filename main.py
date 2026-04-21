@@ -3,14 +3,15 @@ import sys
 import settings as S
 from entities.player import Player
 from systems.controller import KeyboardController, AIController
+from systems.roles import Gunner, Bomber
 
 pygame.init()
 screen = pygame.display.set_mode((S.SCREEN_W, S.SCREEN_H))
 pygame.display.set_caption("ARENA")
 clock = pygame.time.Clock()
 
-p1 = Player(x=220, y=360, color=S.PURPLE, controller=KeyboardController(pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d))
-p2 = Player(x=500, y=360, color=S.ORANGE, controller=AIController())
+p1 = Player(x=220, y=360, color=S.PURPLE, controller=KeyboardController(pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d), role=Gunner())
+p2 = Player(x=500, y=360, color=S.ORANGE, controller=AIController(), role=Bomber())
 
 while True:
     for event in pygame.event.get():
@@ -20,9 +21,17 @@ while True:
     
     screen.fill(S.BLACK)
     pygame.draw.rect(screen, S.WHITE, (S.ARENA_MARGIN, S.ARENA_MARGIN, S.SCREEN_W - S.ARENA_MARGIN * 2, S.SCREEN_H - S.ARENA_MARGIN * 2), 2)
+    dt = clock.tick(S.FPS) / 1000
     keys = pygame.key.get_pressed()
-    p1.update(keys, p2)
-    p2.update(keys, p1)
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+    p1.update(keys, p2, dt)
+    p2.update(keys, p1, dt)
+    
+    if p1.controller.get_action(keys, p1, p2):
+        p1.use_ability(mouse_x, mouse_y)
+    if p2.controller.get_action(keys, p2, p1):
+        p2.use_ability(p1.x, p1.y)
+    
     p1.draw(screen)
     p2.draw(screen)
     pygame.display.flip()
