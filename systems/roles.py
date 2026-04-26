@@ -15,7 +15,7 @@ class Gunner(Role):
         super().__init__(
             name="Gunner",
             color=S.PURPLE,
-            cooldown=0.6
+            cooldown=1.2
         )
         
     def create_projectiles(self, x, y, target_x, target_y):
@@ -40,7 +40,7 @@ class Bomber(Role):
         super().__init__(
             name="Bomber",
             color=S.ORANGE,
-            cooldown=1.2
+            cooldown=2.5
         )
     def create_projectiles(self, x, y, target_x, target_y):
         projectiles = []

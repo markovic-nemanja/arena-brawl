@@ -4,6 +4,7 @@ import settings as S
 from entities.player import Player
 from systems.controller import KeyboardController, AIController
 from systems.roles import Gunner, Bomber
+from systems import collision
 
 pygame.init()
 screen = pygame.display.set_mode((S.SCREEN_W, S.SCREEN_H))
@@ -26,6 +27,17 @@ while True:
     mouse_x, mouse_y = pygame.mouse.get_pos()
     p1.update(keys, p2, dt)
     p2.update(keys, p1, dt)
+    collision.update(p1, p2)
+    
+    if p1.hp <= 0 or p2.hp <= 0:
+        winner = "P2" if p1.hp <= 0 else "P1"
+        font = pygame.font.SysFont(None, 72)
+        text = font.render(f"{winner} WINS!", True, S.WHITE)
+        screen.blit(text, text.get_rect(center=(S.SCREEN_W // 2, S.SCREEN_H // 2)))
+        pygame.display.flip()
+        pygame.time.wait(3000)
+        pygame.quit()
+        sys.exit()
     
     if p1.controller.get_action(keys, p1, p2):
         p1.use_ability(mouse_x, mouse_y)
