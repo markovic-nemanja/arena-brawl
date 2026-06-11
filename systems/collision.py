@@ -25,12 +25,19 @@ def push_apart(player, enemy):
         dvy = player.vy - enemy.vy
         dot = dvx * nx + dvy * ny
 
-        # only bounce if they're moving toward each other
+        # transfer velocity along collision normal (elastic bounce)
         if dot < 0:
             player.vx -= dot * nx
             player.vy -= dot * ny
             enemy.vx  += dot * nx
             enemy.vy  += dot * ny
+
+        # apply minimum bounce force so every collision feels impactful
+        # even if both players were moving slowly toward each other
+        player.vx += nx * S.BOUNCE_FORCE
+        player.vy += ny * S.BOUNCE_FORCE
+        enemy.vx  -= nx * S.BOUNCE_FORCE
+        enemy.vy  -= ny * S.BOUNCE_FORCE
         
 def check_damage(player, enemy):
     for p in enemy.projectiles:

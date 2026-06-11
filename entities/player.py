@@ -30,8 +30,24 @@ class Player:
         self.x += dx * S.PLAYER_SPEED + self.vx
         self.y += dy * S.PLAYER_SPEED + self.vy
         
-        self.x = max(S.ARENA_MARGIN + S.PLAYER_RADIUS, min(S.SCREEN_W - S.ARENA_MARGIN - S.PLAYER_RADIUS, self.x))
-        self.y = max(S.ARENA_MARGIN + S.PLAYER_RADIUS, min(S.SCREEN_H - S.ARENA_MARGIN - S.PLAYER_RADIUS, self.y))
+        left   = S.ARENA_MARGIN + S.PLAYER_RADIUS
+        right  = S.SCREEN_W - S.ARENA_MARGIN - S.PLAYER_RADIUS
+        top    = S.ARENA_MARGIN + S.PLAYER_RADIUS
+        bottom = S.SCREEN_H - S.ARENA_MARGIN - S.PLAYER_RADIUS
+
+        if self.x <= left:
+            self.x  = left
+            self.vx = S.BOUNCE_FORCE        # snap to wall, shoot right
+        elif self.x >= right:
+            self.x  = right
+            self.vx = -S.BOUNCE_FORCE       # snap to wall, shoot left
+
+        if self.y <= top:
+            self.y  = top
+            self.vy = S.BOUNCE_FORCE        # snap to wall, shoot down
+        elif self.y >= bottom:
+            self.y  = bottom
+            self.vy = -S.BOUNCE_FORCE       # snap to wall, shoot up
         
         if self.cooldown > 0:
             self.cooldown -= dt
@@ -45,7 +61,7 @@ class Player:
                 p["alive"] = False
         
     def draw(self, screen):
-        pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), 28)
+        pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), S.PLAYER_RADIUS)
         font = pygame.font.SysFont(None, 28)
         label = font.render(str(self.hp), True, S.WHITE)
         screen.blit(label, label.get_rect(center=(int(self.x), int(self.y))))
