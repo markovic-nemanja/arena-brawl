@@ -12,6 +12,7 @@ CYAN   = (86,  204, 196)
 VOID = (45, 25, 70)
 LAVENDER = (120, 70, 180)
 TOXIC = (110, 200, 60)
+SPLIT = (235, 200, 60)
 
 # UI theme (from the design mockup)
 WIN_BG     = (18, 18, 24)    # game window background

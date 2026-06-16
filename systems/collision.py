@@ -78,6 +78,10 @@ def check_damage(player, enemy, dt):
             if circles_overlap(p["x"], p["y"], p["radius"], player.x, player.y, S.PLAYER_RADIUS):
                 player.hp -= p["damage"]
                 p["alive"] = False
+        elif p["type"] == "split_bullet":
+            if circles_overlap(p["x"], p["y"], p["radius"], player.x, player.y, S.PLAYER_RADIUS):
+                player.hp -= p["damage"]
+                p["alive"] = False
 
 def update(player, enemy, dt):
     push_apart(player, enemy)
