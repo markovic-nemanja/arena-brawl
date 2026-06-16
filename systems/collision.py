@@ -70,6 +70,14 @@ def check_damage(player, enemy, dt):
                     pull_y = (p["y"] - player.y) / dist
                     player.x += pull_x * p["pull_speed"] * dt
                     player.y += pull_y * p["pull_speed"] * dt
+        elif p["type"] == "toxic_head":
+            if circles_overlap(p["x"], p["y"], p["radius"], player.x, player.y, S.PLAYER_RADIUS):
+                player.hp -= p["damage"]
+                p["alive"] = False
+        elif p["type"] == "toxic_trail":
+            if circles_overlap(p["x"], p["y"], p["radius"], player.x, player.y, S.PLAYER_RADIUS):
+                player.hp -= p["damage"]
+                p["alive"] = False
 
 def update(player, enemy, dt):
     push_apart(player, enemy)
