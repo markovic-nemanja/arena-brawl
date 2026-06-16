@@ -15,6 +15,12 @@ class KeyboardController:
         if keys[self.down]: dy+=1
         if keys[self.left]: dx-=1
         if keys[self.right]: dx+=1
+        
+        length = math.hypot(dx, dy) # if player is moving diagonally, he move sqrt(2) which is faster than moving straight, so we normalize the vector to length 1
+        if length > 0:
+            dx /= length
+            dy /= length
+        
         return dx, dy
     
     def get_action(self, keys, player, opponent):

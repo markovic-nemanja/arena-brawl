@@ -193,3 +193,19 @@ pyrightconfig.json
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,python
+
+### ArenaBrawl ###
+# Trained model weights (shared via Google Drive)
+ai/weights/
+
+# Generated training logs
+ai/logs/
+
+# Wandb local run data (can be gigabytes)
+wandb/
+
+# OS files
+Thumbs.db
+
+# Project specification
+*.pdf

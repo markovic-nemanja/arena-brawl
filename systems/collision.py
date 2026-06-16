@@ -41,19 +41,18 @@ def push_apart(player, enemy):
         
 def check_damage(player, enemy):
     for p in enemy.projectiles:
-        if not p['alive']: continue
-        if p['type'] == 'bullet' and p['timer'] <= 0:
-            if circles_overlap(p['x'], p['y'], S.BULLET_RADIUS, player.x, player.y, S.PLAYER_RADIUS):
-                player.hp -= S.BULLET_DAMAGE
-                p['alive'] = False
-        elif p['type'] == 'bomb' and p['timer'] <=0:
-            if circles_overlap(p['x'], p['y'], S.BOMB_RADIUS, player.x, player.y, S.PLAYER_RADIUS):
-                player.hp -= S.BOMB_DAMAGE
-                p['alive'] = False
-                
+        if not p["alive"]:
+            continue
+        if p["type"] == "bullet":
+            if circles_overlap(p["x"], p["y"], p["radius"], player.x, player.y, S.PLAYER_RADIUS):
+                player.hp -= p["damage"]
+                p["alive"] = False
+        elif p["type"] == "bomb" and p["timer"] <= 0:
+            if circles_overlap(p["x"], p["y"], p["radius"], player.x, player.y, S.PLAYER_RADIUS):
+                player.hp -= p["damage"]
+                p["alive"] = False
+
 def update(player, enemy):
     push_apart(player, enemy)
     check_damage(player, enemy)
     check_damage(enemy, player)
-    player.projectiles = [p for p in player.projectiles if p["alive"]]
-    enemy.projectiles  = [p for p in enemy.projectiles  if p["alive"]]
