@@ -39,7 +39,7 @@ def push_apart(player, enemy):
         enemy.vx  -= nx * S.BOUNCE_FORCE
         enemy.vy  -= ny * S.BOUNCE_FORCE
         
-def check_damage(player, enemy):
+def check_damage(player, enemy, dt):
     for p in enemy.projectiles:
         if not p["alive"]:
             continue
@@ -56,11 +56,25 @@ def check_damage(player, enemy):
             if distance < p["radius"] + S.PLAYER_RADIUS:
                 player.hp -= p["damage"]
             p["alive"] = False
+        elif p["type"] == "blackhole":
+            if p["phase"] == "armed":
+                if player.immunity_timer <= 0 and circles_overlap(p["x"], p["y"], p["radius"], player.x, player.y, S.PLAYER_RADIUS):
+                    p["phase"] = "trapping"
+                    p["timer"] = p["trap_duration"]
+                    player.stun_timer = p["trap_duration"]
+            if p["phase"] == "trapping":
+                player.hp -= p["damage_per_second"] * dt
+                dist = math.hypot(p["x"] - player.x, p["y"] - player.y)
+                if dist > 0:
+                    pull_x = (p["x"] - player.x) / dist
+                    pull_y = (p["y"] - player.y) / dist
+                    player.x += pull_x * p["pull_speed"] * dt
+                    player.y += pull_y * p["pull_speed"] * dt
 
-def update(player, enemy):
+def update(player, enemy, dt):
     push_apart(player, enemy)
-    check_damage(player, enemy)
-    check_damage(enemy, player)
+    check_damage(player, enemy, dt)
+    check_damage(enemy, player, dt)
     
 def point_segment_distance(px, py, ax, ay, bx, by):
     abx, aby = bx - ax, by - ay

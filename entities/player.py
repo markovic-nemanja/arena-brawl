@@ -15,6 +15,8 @@ class Player:
         self.vx = 0
         self.vy = 0
         self.last_direction = pygame.math.Vector2(1, 0)  # default facing right
+        self.stun_timer = 0
+        self.immunity_timer = 0
 
     def use_ability(self):
         if self.cooldown > 0:
@@ -23,11 +25,18 @@ class Player:
         self.cooldown = self.role.cooldown
 
     def update(self, keys, opponent, dt):
-        dx, dy = self.controller.get_movement(keys, self, opponent)
-
-        # Track last facing direction for ability aim
-        if dx != 0 or dy != 0:
-            self.last_direction = pygame.math.Vector2(dx, dy)
+        if self.stun_timer > 0:
+            self.stun_timer -= dt
+            dx, dy = 0, 0
+            if self.immunity_timer <= 0:
+                self.immunity_timer = S.STUN_IMMUNITY
+        else:
+            if self.immunity_timer > 0:
+                self.immunity_timer -= dt
+            dx, dy = self.controller.get_movement(keys, self, opponent)
+            
+            if dx != 0 or dy != 0:
+                self.last_direction = pygame.math.Vector2(dx, dy)
 
         self.vx *= 0.8
         self.vy *= 0.8
@@ -75,5 +84,5 @@ class Player:
 
         pygame.draw.circle(screen, self.color, (cx, cy), S.PLAYER_RADIUS)
 
-        label = ui.font(28).render(str(self.hp), True, S.WHITE)
+        label = ui.font(28).render(str(round(self.hp)), True, S.WHITE)
         screen.blit(label, label.get_rect(center=(cx, cy)))

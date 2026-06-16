@@ -9,6 +9,8 @@ PURPLE = (127, 119, 221)
 ORANGE = (216,  90,  48)
 RED    = (226,  75,  75)
 CYAN   = (86,  204, 196)
+VOID = (45, 25, 70)
+LAVENDER = (120, 70, 180)
 
 # UI theme (from the design mockup)
 WIN_BG     = (18, 18, 24)    # game window background
@@ -33,3 +35,4 @@ PLAYER_SPEED   = 3
 PLAYER_MAX_HP  = 100
 PLAYER_RADIUS = 38
 BOUNCE_FORCE     = 10
+STUN_IMMUNITY = 1.0

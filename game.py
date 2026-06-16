@@ -10,7 +10,7 @@ class Game:
         """Advance one frame. Returns the winner Player or None if still ongoing."""
         self.p1.update(keys, self.p2, dt)
         self.p2.update(keys, self.p1, dt)
-        collision.update(self.p1, self.p2)
+        collision.update(self.p1, self.p2, dt)
 
         if self.p1.controller.get_action(keys, self.p1, self.p2):
             self.p1.use_ability()
