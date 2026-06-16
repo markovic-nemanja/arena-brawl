@@ -51,8 +51,24 @@ def check_damage(player, enemy):
             if circles_overlap(p["x"], p["y"], p["radius"], player.x, player.y, S.PLAYER_RADIUS):
                 player.hp -= p["damage"]
                 p["alive"] = False
+        elif p["type"] == "phantom" and p["phase"] == "merging":
+            distance = point_segment_distance(player.x, player.y, p["x"], p["y"], p["target_x"], p["target_y"])
+            if distance < p["radius"] + S.PLAYER_RADIUS:
+                player.hp -= p["damage"]
+            p["alive"] = False
 
 def update(player, enemy):
     push_apart(player, enemy)
     check_damage(player, enemy)
     check_damage(enemy, player)
+    
+def point_segment_distance(px, py, ax, ay, bx, by):
+    abx, aby = bx - ax, by - ay
+    squared_length_ab = abx * abx + aby * aby
+    if squared_length_ab == 0:
+        return math.hypot(px - ax, py - ay)
+    t = ((px-ax) * abx + (py-ay) * aby) / squared_length_ab
+    t = max(0, min(1, t))
+    closest_x = ax + t * abx
+    closest_y = ay + t * aby
+    return math.hypot(px - closest_x, py - closest_y)

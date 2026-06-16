@@ -65,8 +65,10 @@ class Player:
     def draw(self, screen):
         cx, cy = int(self.x), int(self.y)
 
+        self.role.draw(screen, self)  # Role-specific visuals
+
         # Soft glow behind player
-        glow_r = S.PLAYER_RADIUS + 14
+        glow_r = S.PLAYER_RADIUS + 10
         glow = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
         pygame.draw.circle(glow, (*self.color, 70), (glow_r, glow_r), glow_r)
         screen.blit(glow, (cx - glow_r, cy - glow_r))
@@ -75,6 +77,3 @@ class Player:
 
         label = ui.font(28).render(str(self.hp), True, S.WHITE)
         screen.blit(label, label.get_rect(center=(cx, cy)))
-
-        # Delegate ability visuals to role
-        self.role.draw(screen, self)

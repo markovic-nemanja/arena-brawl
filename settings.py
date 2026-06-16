@@ -8,6 +8,7 @@ WHITE  = (255, 255, 255)
 PURPLE = (127, 119, 221)
 ORANGE = (216,  90,  48)
 RED    = (226,  75,  75)
+CYAN   = (86,  204, 196)
 
 # UI theme (from the design mockup)
 WIN_BG     = (18, 18, 24)    # game window background
