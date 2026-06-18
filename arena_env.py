@@ -5,7 +5,7 @@ from gymnasium import spaces
 import pygame
 import settings as S
 from entities.player import Player
-from systems.controller import AIController, RLController
+from systems.controller import EasyBot, RLController
 from systems.roles import *
 from game import Game
 
@@ -48,7 +48,7 @@ class ArenaBrawlEnv(gym.Env):
         self.opponent = Player(
             x=P2X, y=Y,
             color=S.ORANGE,
-            controller=AIController(),
+            controller=EasyBot(),
             role=self.opponent_role
         )
         

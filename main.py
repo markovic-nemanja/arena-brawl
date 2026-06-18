@@ -2,7 +2,7 @@ import pygame
 import sys
 import settings as S
 from entities.player import Player
-from systems.controller import KeyboardController, AIController
+from systems.controller import KeyboardController, EasyBot
 from systems.roles import Gunner, Bomber, ROLES
 from systems import ui
 from game import Game
@@ -18,15 +18,15 @@ def make_players(mode):
     if mode == 1:
         role1 = ui.role_select(screen, 1, ROLES)
         p1 = Player(x=P1X, y=Y, color=S.PURPLE, controller=KeyboardController(pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d), role=role1)
-        p2 = Player(x=P2X, y=Y, color=S.ORANGE, controller=AIController(), role=Bomber())
+        p2 = Player(x=P2X, y=Y, color=S.ORANGE, controller=EasyBot(), role=Bomber())
     elif mode == 2:
         role1 = ui.role_select(screen, 1, ROLES)
         role2 = ui.role_select(screen, 2, ROLES)
         p1 = Player(x=P1X, y=Y, color=S.PURPLE, controller=KeyboardController(pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d), role=role1)
         p2 = Player(x=P2X, y=Y, color=S.ORANGE, controller=KeyboardController(pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT), role=role2)
     else:
-        p1 = Player(x=P1X, y=Y, color=S.PURPLE, controller=AIController(), role=Gunner())
-        p2 = Player(x=P2X, y=Y, color=S.ORANGE, controller=AIController(), role=Bomber())
+        p1 = Player(x=P1X, y=Y, color=S.PURPLE, controller=EasyBot(), role=Gunner())
+        p2 = Player(x=P2X, y=Y, color=S.ORANGE, controller=EasyBot(), role=Bomber())
     return p1, p2
 
 

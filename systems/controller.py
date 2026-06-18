@@ -26,7 +26,7 @@ class KeyboardController:
     def get_action(self, keys, player, opponent):
         return keys[pygame.K_SPACE]
     
-class AIController:
+class EasyBot:
     def __init__(self):
         self.attack_range = 300
         
