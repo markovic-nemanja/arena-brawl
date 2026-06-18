@@ -15,6 +15,7 @@ class Splitter(Role):
         self.bullet_radius = 6
         self.damage = 12
         self.max_range = 240
+        self.attack_range = self.max_range
 
     def activate(self, player):
         d = pygame.math.Vector2(player.last_direction).normalize()

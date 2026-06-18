@@ -1,6 +1,7 @@
 import pygame
 import settings as S
 from .base import Role
+import math
 
 class Dasher(Role):
     def __init__(self):
@@ -15,6 +16,7 @@ class Dasher(Role):
         self.phantom_time = 1 # seconds
         self.phantom_hitbox = 20 # pixels
         self.phantom_damage = 30
+        self.attack_range = self.dash_distance + S.PLAYER_SPEED * 60 * self.phantom_time # 60 because 60 FPS
 
     def activate(self, player):
         d = pygame.math.Vector2(player.last_direction).normalize()
@@ -69,3 +71,13 @@ class Dasher(Role):
     def get_hazards(self, player):
         return [(p["x"], p["y"]) for p in player.projectiles
                 if p["alive"] and p["type"] == "phantom" and p["phase"] == "waiting"]
+        
+    def should_attack(self, player, opponent):
+        dx = opponent.x - player.x
+        dy = opponent.y - player.y
+        distance = math.hypot(dx, dy)
+        if distance == 0:
+            return False
+        # A.x * B.x + A.y * B.y = cos(θ) the dot product of two vectors, where θ is the angle between them
+        dot = player.last_direction.x * (dx / distance) + player.last_direction.y * (dy / distance)
+        return distance < self.attack_range and dot > 0.7 # 0.7 is roughly 45 degrees, so the opponent must be in front of the player

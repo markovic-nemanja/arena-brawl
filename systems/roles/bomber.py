@@ -16,6 +16,7 @@ class Bomber(Role):
         self.bomb_travel_speed = 200 # pixels per second
         self.bomb_radius = 80
         self.bomb_damage = 35
+        self.attack_range = self.bomb_travel_speed * self.bomb_fuse
 
     def activate(self, player):
         d = pygame.math.Vector2(player.last_direction)

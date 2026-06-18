@@ -1,13 +1,14 @@
 import pygame
 import settings as S
 from .base import Role
+import math
 
 class ToxicTrail(Role):
     def __init__(self):
         super().__init__(
             name="Toxic Trail",
             color=S.TOXIC,
-            cooldown=4.0,
+            cooldown=2,
             desc="Fires a toxic trail that lingers and damages on contact",
             select_color=(140, 220, 90)
         )
@@ -16,7 +17,9 @@ class ToxicTrail(Role):
         self.damage = 12
         self.segment_interval = 0.15
         self.segment_radius = 30
-        self.segment_lifetime = 2.5
+        self.segment_lifetime = 4
+        self.max_segments = 6
+        self.attack_range = self.head_speed * self.segment_interval * self.max_segments
 
     def activate(self, player):
         d = pygame.math.Vector2(player.last_direction).normalize()
@@ -26,6 +29,7 @@ class ToxicTrail(Role):
             "y": player.y,
             "dx": d.x * self.head_speed,
             "dy": d.y * self.head_speed,
+            "segments_spawned": 0,
             "segment_timer": 0,
             "damage": self.damage,
             "radius": self.head_radius,
@@ -56,6 +60,9 @@ class ToxicTrail(Role):
                         "radius": self.segment_radius,
                         "alive": True
                     })
+                    p["segments_spawned"] += 1
+                    if p["segments_spawned"] >= self.max_segments:
+                        p["alive"] = False
             elif p["type"] == "toxic_trail":
                 p["lifetime"] -= dt
                 if p["lifetime"] <= 0:
@@ -77,3 +84,13 @@ class ToxicTrail(Role):
     def get_hazards(self, player):
         return [(p["x"], p["y"]) for p in player.projectiles
                 if p["alive"] and p["type"] in ("toxic_head", "toxic_trail")]
+
+    def should_attack(self, player, opponent):
+        dx = opponent.x - player.x
+        dy = opponent.y - player.y
+        distance = math.hypot(dx, dy)
+        if distance == 0:
+            return False
+        # A.x * B.x + A.y * B.y = cos(θ) the dot product of two vectors, where θ is the angle between them
+        dot = player.last_direction.x * (dx / distance) + player.last_direction.y * (dy / distance)
+        return dot > 0.7 # 0.7 is roughly 45 degrees, so the opponent must be in front of the player

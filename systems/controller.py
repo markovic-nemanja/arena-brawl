@@ -1,6 +1,7 @@
 import pygame
 import settings as S
 import math
+import random
 
 class KeyboardController:
     def __init__(self, up, down, left, right):
@@ -28,7 +29,7 @@ class KeyboardController:
     
 class EasyBot:
     def __init__(self):
-        self.attack_range = 300
+        pass
         
     def get_movement(self, keys, player, opponent):
         dx = opponent.x - player.x
@@ -39,8 +40,52 @@ class EasyBot:
         return dx / distance, dy / distance
     
     def get_action(self, keys, player, opponent):
-        distance = math.hypot(opponent.x - player.x, opponent.y - player.y)
-        return distance <= self.attack_range
+        return player.role.should_attack(player, opponent)
+    
+class MediumBot:
+    def __init__(self):
+        self.kite_timer = 0
+        self.strafe_timer = 0
+        self.strafing = False
+        self.strafe_direction = 1
+        
+    def get_movement(self, keys, player, opponent):
+        dx = opponent.x - player.x
+        dy = opponent.y - player.y
+        distance = math.hypot(dx, dy)
+        if distance == 0:
+            return 0, 0
+        dx /= distance
+        dy /= distance
+        
+        if player.hp < 30:
+            return -dx, -dy
+        
+        if self.kite_timer > 0:
+            self.kite_timer -= 1
+            return -dx, -dy
+        
+        self.strafe_timer -= 1
+        if self.strafe_timer <= 0:
+            self.strafing = not self.strafing
+            
+            if self.strafing:
+                self.strafe_direction *= -1
+                
+            self.strafe_timer = random.randint(30, 90)
+            
+        if self.strafing:
+            return -dy * self.strafe_direction, dx * self.strafe_direction
+        
+        return dx, dy
+    
+    def get_action(self, keys, player, opponent):
+        if player.cooldown <= 0 and player.role.should_attack(player, opponent):
+            self.kite_timer = 30
+            return True
+        
+        return False
+            
     
 _DIAG = math.sqrt(2) / 2
 _ACTION_TO_MOVE = [

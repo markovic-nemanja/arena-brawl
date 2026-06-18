@@ -19,6 +19,7 @@ class Blackhole(Role):
         self.damage_per_second = 15
         self.pull_speed = 100
         self.max_active = 4
+        self.attack_range = self.throw_distance + self.radius
         
     def activate(self, player):
         d = pygame.math.Vector2(player.last_direction).normalize()

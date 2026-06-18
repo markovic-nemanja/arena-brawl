@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-
+import math
 
 class Role(ABC):
     def __init__(self, name, color, cooldown, desc="", select_color=None):
@@ -28,3 +28,9 @@ class Role(ABC):
         """Returns list of (x, y) for active hazards — used by state vector.
         Not abstract — default is no hazards, override when role creates objects."""
         return []
+
+    def should_attack(self, player, opponent):
+        """Returns True if the character should attack the opponent.
+        Not abstract — default is always attack, override when role has special conditions.
+        The default implementation is to attack if the opponent is within attack range, which is defined by the role."""
+        return math.hypot(opponent.x - player.x, opponent.y - player.y) <= self.attack_range

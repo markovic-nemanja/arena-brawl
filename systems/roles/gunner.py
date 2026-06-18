@@ -18,6 +18,13 @@ class Gunner(Role):
         self.bullet_damage = 10
         self.burst_delay = 0.25
         self.bullet_radius = 5
+        # The bullet will hit a wall eventually, so we need to ask can opponent dodge it?
+        # The opponent moves at PLAYER_SPEED * 60 = 180 px/s, to sidestep opponent needs to move one diameter sideways = PLAYER_RADIUS * 2 = 76 px
+        # Time to do that is 76/180 = 0.42s
+        # The bullet travels at 480 px/s, so in 0.42s it travels 480*0.42 roughly 200 px
+        # So if the bullet is fired from <200 px away, the hit is guaranteed
+        # Attack range is set to roughly 300 px, so it is dodgeable, and since its burst fire, player can travel some distance between shots
+        self.attack_range = 300 
 
     def activate(self, player):
         self._fire(player)
