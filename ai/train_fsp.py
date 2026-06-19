@@ -6,6 +6,8 @@ from systems.roles import *
 from systems.controller import EasyBot, MediumBot
 from ai.replay_buffer import ReplayBuffer
 from ai.dqn_agent import DQNAgent
+import wandb
+from collections import deque
 
 ALL_ROLES = [Gunner, Bomber, Dasher, Blackhole, ToxicTrail, Splitter]
 
@@ -48,6 +50,22 @@ def train_fsp(
     agent = DQNAgent(batch_size=batch_size)
     buffer = ReplayBuffer(capacity=buffer_capacity)
     pool = []
+    
+    # live wandb logs
+    recent_wins = deque(maxlen=100)
+    wandb.init(
+        project="arena-brawl-fsp",
+        name=agent_role.__name__,
+        config={
+            "num_episodes": num_episodes,
+            "batch_size": batch_size,
+            "buffer_capacity": buffer_capacity,
+            "gamma": agent.gamma,
+            "epsilon_decay": agent.epsilon_decay,
+            "phase_bounds": PHASE_BOUNDS,
+        },
+        reinit=True
+    )
     
     log_file = open(log_path, mode='w', newline='')
     writer = csv.writer(log_file)
@@ -97,7 +115,19 @@ def train_fsp(
             
         avg_loss = total_loss / loss_count if loss_count > 0 else 0
         writer.writerow([episode, phase, opponent_label, round(total_reward, 3), step_count, win, round(agent.epsilon, 4), round(avg_loss, 5)])
-            
+
+        recent_wins.append(win)
+        wandb.log({
+            "episode": episode,
+            "phase": phase,
+            "reward": total_reward,
+            "win": win,
+            "win_rate": sum(recent_wins) / len(recent_wins),
+            "steps": step_count,
+            "epsilon": agent.epsilon,
+            "loss": avg_loss,
+        })
+
         if (episode + 1) % snapshot_every == 0:
             path = os.path.join(save_dir, f"{agent_role.__name__.lower()}_snap_{episode + 1}.pth")
             agent.save(path)
@@ -110,6 +140,7 @@ def train_fsp(
     agent.save(os.path.join(save_dir, f"{agent_role.__name__.lower()}_final.pth"))
     log_file.close()
     env.close()
+    wandb.finish() # end wandb
     print("FSP training completed.")
                 
 if __name__ == "__main__":
