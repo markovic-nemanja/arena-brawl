@@ -16,16 +16,22 @@ class ArenaBrawlEnv(gym.Env):
     _ARENA_HEIGHT = S.ARENA_BOTTOM - S.ARENA_TOP
     _MAX_DISTANCE = math.hypot(_ARENA_WIDTH, _ARENA_HEIGHT)
     
-    def __init__(self, agent_role=None, opponent_role=None, render_mode=None):
+    def __init__(self, agent_role=None, opponent_role=None, render_mode=None, max_steps=5400,
+                 opponent_agent=None, opponent_bot=EasyBot):
         super().__init__()
         self.render_mode = render_mode
+        self.max_steps = max_steps
+        self.current_step = 0
         self.agent_role = agent_role or Gunner()
         self.opponent_role = opponent_role or Gunner()
+        self.opponent_agent = opponent_agent
+        self.opponent_bot = opponent_bot
         
         self.observation_space = spaces.Box(low=0, high=1, shape=(16,), dtype=np.float32)
         self.action_space = spaces.Discrete(10)
         
         self._rl_controller = RLController()
+        self._opponent_controller = RLController()
         self._screen = None
         self._clock = None
         self.game = None
@@ -37,19 +43,26 @@ class ArenaBrawlEnv(gym.Env):
         
         P1X, P2X, Y = 226, 494, 403
         self._rl_controller.current_action = 0
+        self.current_step = 0
         
         self.agent = Player(
             x=P1X, y=Y,
             color=S.PURPLE,
             controller=self._rl_controller,
-            role=self.agent_role
+            role=type(self.agent_role)()
         )
         
+        if self.opponent_agent is not None:
+            self._opponent_controller.current_action = 0
+            opponent_controller = self._opponent_controller
+        else:
+            opponent_controller = self.opponent_bot()
+            
         self.opponent = Player(
             x=P2X, y=Y,
             color=S.ORANGE,
-            controller=EasyBot(),
-            role=self.opponent_role
+            controller=opponent_controller,
+            role=type(self.opponent_role)()
         )
         
         self.game = Game(self.agent, self.opponent)
@@ -57,10 +70,15 @@ class ArenaBrawlEnv(gym.Env):
         if self.render_mode == "human" and self._screen is None:
             self._init_pygame()
         
-        return self._get_obs(), {}
+        return self._get_obs(self.agent, self.opponent), {}
     
     def step(self, action):
         self._rl_controller.current_action = int(action)
+        self.current_step += 1
+        
+        if self.opponent_agent is not None:
+            opponent_obs = self._get_obs(self.opponent, self.agent)
+            self._opponent_controller.current_action = self.opponent_agent.select_action(opponent_obs)
         
         prev_agent_hp = self.agent.hp
         prev_opponent_hp = self.opponent.hp
@@ -72,6 +90,7 @@ class ArenaBrawlEnv(gym.Env):
         
         reward = damage_dealt * 0.1 - damage_taken * 0.1 - 0.001
         terminated = winner is not None
+        truncated = self.current_step >= self.max_steps
         
         if terminated:
             reward += 10.0 if winner is self.agent else -10.0
@@ -79,7 +98,7 @@ class ArenaBrawlEnv(gym.Env):
         if self.render_mode == "human":
             self.render()
             
-        return self._get_obs(), reward, terminated, False, {}
+        return self._get_obs(self.agent, self.opponent), reward, terminated, truncated, {}
     
     def render(self):
         self.game.render(self._screen)
@@ -98,8 +117,8 @@ class ArenaBrawlEnv(gym.Env):
         pygame.display.set_caption("Arena Brawl - RL")
         self._clock = pygame.time.Clock()
         
-    def _get_obs(self):
-        p, o = self.agent, self.opponent
+    def _get_obs(self, me, them):
+        p, o = me, them
         
         px = (p.x - S.ARENA_LEFT) / self._ARENA_WIDTH
         py = (p.y - S.ARENA_TOP)  / self._ARENA_HEIGHT
@@ -118,7 +137,7 @@ class ArenaBrawlEnv(gym.Env):
         ovx = np.clip(o.vx / max_velocity * 0.5 + 0.5, 0.0, 1.0) # min-max normalization
         ovy = np.clip(o.vy / max_velocity * 0.5 + 0.5, 0.0, 1.0) # min-max normalization
         
-        h1x, h1y, h2x, h2y = self._get_hazards()
+        h1x, h1y, h2x, h2y = self._get_hazards(p, o)
         
         immobile = 1 if o.stun_timer > 0 else 0
         
@@ -132,11 +151,11 @@ class ArenaBrawlEnv(gym.Env):
             immobile   
         ], dtype=np.float32)
         
-    def _get_hazards(self):
-        p = self.agent
+    def _get_hazards(self, me, them):
+        p = me
         hazards = []
         
-        for projectile in self.opponent.projectiles:
+        for projectile in them.projectiles:
             if not projectile.get("alive", False):
                 continue
             
