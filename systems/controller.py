@@ -27,6 +27,32 @@ class KeyboardController:
     def get_action(self, keys, player, opponent):
         return keys[pygame.K_SPACE]
     
+class StationaryBot:
+    def get_movement(self, keys, player, opponent):
+        return 0, 0
+    def get_action(self, keys, player, opponent):
+        return False
+    
+class RandomBot:
+    def __init__(self):
+        self.dx, self.dy = 0, 0
+        self.timer = 0
+        
+    def get_movement(self, keys, player, opponent):
+        self.timer -= 1
+        if self.timer <= 0:
+            angle = random.uniform(0, 2 * math.pi)
+            self.dx, self.dy = math.cos(angle), math.sin(angle)
+            self.timer = random.randint(30,60)
+        
+        return self.dx, self.dy
+        
+    def get_action(self, keys, player, opponent):
+        return False
+    
+class RandomShooterBot(RandomBot):
+    def get_action(self, keys, player, opponent):
+        return player.role.should_attack(player, opponent)
 class EasyBot:
     def __init__(self):
         pass

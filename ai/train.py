@@ -4,6 +4,21 @@ from arena_env import ArenaBrawlEnv
 from systems.roles import *
 from ai.replay_buffer import ReplayBuffer
 from ai.dqn_agent import DQNAgent
+import time
+from systems.controller import StationaryBot, RandomBot, RandomShooterBot
+
+PHASES_BOUNDS = (1000, 3000)
+PHASES_BOTS = {1: StationaryBot, 2: RandomBot, 3: RandomShooterBot}
+
+def get_phase(episode):
+    b1, b2 = PHASES_BOUNDS
+    if episode < b1:
+        return 1
+    elif episode < b2:
+        return 2
+    return 3
+
+
 
 def train(
     agent_role=None,
@@ -25,8 +40,20 @@ def train(
     log_file = open(log_path, mode='w', newline='')
     writer = csv.writer(log_file)
     writer.writerow(["episode", "reward", "steps", "win", "epsilon", "loss"])
+    last_print = time.time()
+    
+    last_phase = 0
     
     for episode in range(num_episodes):
+        phase = get_phase(episode)
+        if phase != last_phase:
+            env.opponent_bot = PHASES_BOTS[phase]
+            if last_phase != 0:
+                agent.epsilon = max(agent.epsilon, 0.5)
+                print(f"===Phase {last_phase} ({PHASES_BOTS[last_phase].__name__}). Switching to Phase {phase}.")
+            last_phase = phase
+            
+            
         state, _ = env.reset()
         total_reward = 0
         total_loss = 0
@@ -59,10 +86,14 @@ def train(
         avg_loss = total_loss / loss_count if loss_count > 0 else 0
         writer.writerow([episode, round(total_reward, 3), step_count, win, round(agent.epsilon, 4), round(avg_loss, 5)])
         
+        if time.time() - last_print >= 30:
+            print(f"Episode {episode + 1} | reward={total_reward:.1f} | steps={step_count} | win={win} | epsilon={agent.epsilon:.3f} | loss={avg_loss:.5f}")
+            last_print = time.time()
+        
         if (episode + 1) % snapshot_every == 0:
             snapshot_path = os.path.join(save_dir, f"dqn_snapshot_{episode + 1}.pth")
             agent.save(snapshot_path)
-            print(f"Episode {episode + 1} | reward={total_reward:.3f} |win={win} | epsilon={agent.epsilon:.4f} | loss={avg_loss:.5f}")
+            print(f"Episode {episode + 1} | reward={total_reward:.3f} | steps={step_count} |win={win} | epsilon={agent.epsilon:.4f} | loss={avg_loss:.5f}")
             
     agent.save(os.path.join(save_dir, "dqn_final.pth"))
     log_file.close()
@@ -72,6 +103,6 @@ def train(
 if __name__ == "__main__":
     train(
         agent_role=Gunner(),
-        opponent_role=Bomber(),
-        num_episodes=5000,
+        opponent_role=Gunner(),
+        num_episodes=8000,
     )

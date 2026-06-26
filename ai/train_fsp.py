@@ -8,27 +8,26 @@ from ai.replay_buffer import ReplayBuffer
 from ai.dqn_agent import DQNAgent
 import wandb
 from collections import deque
+import time
 
 ALL_ROLES = [Gunner, Bomber, Dasher, Blackhole, ToxicTrail, Splitter]
 
-PHASE_BOUNDS = (500, 2000, 3000)
+PHASE_BOUNDS = (1500, 4000)
 
 PHASE_CONFIG = {
-    1: {"bot":EasyBot, "pool_prob":0.0},
-    2: {"bot":MediumBot, "pool_prob":0.7},
-    3: {"bot":MediumBot, "pool_prob":0.9}, # change later to HardBot
-    4: {"bot":MediumBot, "pool_prob":0.9}, # bot stays as anti-forgetting anchor
+    1: {"bot":EasyBot, "pool_prob":0.5},
+    2: {"bot":MediumBot, "pool_prob":0.8},
+    3: {"bot":MediumBot, "pool_prob":0.95}, # change later to HardBot
+    # 4: {"bot":MediumBot, "pool_prob":0.9}, # bot stays as anti-forgetting anchor
 }
 
 def get_phase(episode):
-    b1, b2, b3 = PHASE_BOUNDS
+    b1, b2 = PHASE_BOUNDS
     if episode < b1:
         return 1
     elif episode < b2:
         return 2
-    elif episode < b3:
-        return 3
-    return 4
+    return 3
 
 def sample_recent_weighted(pool):
     weights = list(range(1, len(pool) + 1))
@@ -36,6 +35,7 @@ def sample_recent_weighted(pool):
 
 def train_fsp(
     agent_role=None,
+    base_weights=None,
     num_episodes=5000,
     buffer_capacity=100000,
     batch_size=64,
@@ -47,9 +47,20 @@ def train_fsp(
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     
     env = ArenaBrawlEnv(agent_role=agent_role())
-    agent = DQNAgent(batch_size=batch_size)
+    agent = DQNAgent(batch_size=batch_size, learning_rate=0.0005)
+    
+    if base_weights is not None:
+        agent.load(base_weights)
+        agent.epsilon = 0.25
+    
     buffer = ReplayBuffer(capacity=buffer_capacity)
     pool = []
+    
+    if base_weights is not None:
+        frozen = DQNAgent()
+        frozen.load(base_weights)
+        frozen.epsilon = 0
+        pool.append(frozen)
     
     # live wandb logs
     recent_wins = deque(maxlen=100)
@@ -71,6 +82,7 @@ def train_fsp(
     writer = csv.writer(log_file)
     writer.writerow(["episode", "phase", "opponent", "reward", "steps", "win", "epsilon", "loss"])
     
+    start_time = last_print = time.time()
     for episode in range(num_episodes):
         phase = get_phase(episode)
         config = PHASE_CONFIG[phase]
@@ -82,7 +94,7 @@ def train_fsp(
         else:
             env.opponent_agent = None
             env.opponent_bot = config["bot"]
-            env.opponent_role = random.choice(ALL_ROLES)()
+            env.opponent_role = agent_role() # Change to all agents later
             opponent_label = config["bot"].__name__
             
         state, _ = env.reset()
@@ -129,22 +141,34 @@ def train_fsp(
         })
 
         if (episode + 1) % snapshot_every == 0:
-            path = os.path.join(save_dir, f"{agent_role.__name__.lower()}_snap_{episode + 1}.pth")
+            path = os.path.join(save_dir, f"{agent_role.__name__.lower()}_snap_{episode + 1}_fsp.pth")
             agent.save(path)
             frozen = DQNAgent()
             frozen.load(path)
             frozen.epsilon = 0.0
             pool.append(frozen)
-            print(f"Episode {episode + 1} | P{phase} | reward={total_reward:.1f} | win={win} | epsilon={agent.epsilon:.3f} | pool={len(pool)}")
-                
-    agent.save(os.path.join(save_dir, f"{agent_role.__name__.lower()}_final.pth"))
+            elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
+            print(f"[{elapsed}] Episode {episode + 1} | Phase{phase} | vs {opponent_label} | reward={total_reward:.3f} | steps={step_count} |win={win} | epsilon={agent.epsilon:.4f} | loss={avg_loss:.5f}")
+            
+        if time.time() - last_print >= 30:
+            elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
+            print(f"[{elapsed}] Episode {episode + 1} | Phase{phase} | vs {opponent_label} | reward={total_reward:.3f} | steps={step_count} |win={win} | epsilon={agent.epsilon:.4f} | loss={avg_loss:.5f}")
+            last_print = time.time()
+
+    agent.save(os.path.join(save_dir, f"{agent_role.__name__.lower()}_final_fsp.pth"))
     log_file.close()
     env.close()
     wandb.finish() # end wandb
     print("FSP training completed.")
                 
 if __name__ == "__main__":
+    """
     for role in ALL_ROLES:
         print(f"=====Starting FSP training for role: {role.__name__}=====")
         train_fsp(agent_role=role, num_episodes=5000, log_path=f"ai/logs/fsp_{role.__name__.lower()}.csv",)
         print(f"=====Completed FSP training for role: {role.__name__}=====")
+    """
+    
+    print(f"=====Starting FSP training for role: Gunner=====")
+    train_fsp(agent_role=Gunner, num_episodes=6000, base_weights="ai/weights/dqn_final.pth", log_path="ai/logs/fsp_gunner.csv")
+    print(f"=====Completed FSP training for role: Gunner=====")

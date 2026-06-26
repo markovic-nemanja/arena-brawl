@@ -1,7 +1,7 @@
 import pygame
 import settings as S
 from .base import Role
-
+import math
 
 class Gunner(Role):
     def __init__(self):
@@ -71,3 +71,14 @@ class Gunner(Role):
     def get_hazards(self, player):
         return [(p["x"], p["y"]) for p in player.projectiles
                 if p["alive"] and p["type"] == "bullet"]
+
+    def should_attack(self, player, opponent):
+        dx = opponent.x - player.x
+        dy = opponent.y - player.y
+        distance = math.hypot(dx, dy)
+        
+        if distance == 0:
+            return False
+        
+        dot = player.last_direction.x * (dx/distance) + player.last_direction.y * (dy/distance)
+        return distance < self.attack_range and dot > 0.5

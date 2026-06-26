@@ -8,6 +8,7 @@ from entities.player import Player
 from systems.controller import EasyBot, RLController
 from systems.roles import *
 from game import Game
+import random
 
 class ArenaBrawlEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
@@ -21,6 +22,7 @@ class ArenaBrawlEnv(gym.Env):
         super().__init__()
         self.render_mode = render_mode
         self.max_steps = max_steps
+        self.frame_skip = 4
         self.current_step = 0
         self.agent_role = agent_role or Gunner()
         self.opponent_role = opponent_role or Gunner()
@@ -41,12 +43,20 @@ class ArenaBrawlEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
-        P1X, P2X, Y = 226, 494, 403
         self._rl_controller.current_action = 0
         self.current_step = 0
         
+        px = random.randint(S.ARENA_LEFT + S.PLAYER_RADIUS, S.ARENA_RIGHT - S.PLAYER_RADIUS)
+        py = random.randint(S.ARENA_TOP + S.PLAYER_RADIUS, S.ARENA_BOTTOM - S.PLAYER_RADIUS)
+        
+        while True:
+            ox = random.randint(S.ARENA_LEFT + S.PLAYER_RADIUS, S.ARENA_RIGHT - S.PLAYER_RADIUS)
+            oy = random.randint(S.ARENA_TOP + S.PLAYER_RADIUS, S.ARENA_BOTTOM - S.PLAYER_RADIUS)
+            if math.hypot(ox - px, oy - py) > 200: # don't spawn on top of each other
+                break
+            
         self.agent = Player(
-            x=P1X, y=Y,
+            x=px, y=py,
             color=S.PURPLE,
             controller=self._rl_controller,
             role=type(self.agent_role)()
@@ -59,7 +69,7 @@ class ArenaBrawlEnv(gym.Env):
             opponent_controller = self.opponent_bot()
             
         self.opponent = Player(
-            x=P2X, y=Y,
+            x=ox, y=oy,
             color=S.ORANGE,
             controller=opponent_controller,
             role=type(self.opponent_role)()
@@ -72,33 +82,62 @@ class ArenaBrawlEnv(gym.Env):
         
         return self._get_obs(self.agent, self.opponent), {}
     
-    def step(self, action):
-        self._rl_controller.current_action = int(action)
+    def _potential(self):
+        dx = self.opponent.x - self.agent.x
+        dy = self.opponent.y - self.agent.y
+        distance = math.hypot(dx, dy)
+        
+        closeness = 1 - (distance / self._MAX_DISTANCE)
+        aim = (self.agent.last_direction.x * (dx /distance) + self.agent.last_direction.y * (dy / distance)) if distance > 0 else 0
+        
+        return 0.3 * closeness + 0.5 * aim
+    
+    def _step(self):
         self.current_step += 1
         
         if self.opponent_agent is not None:
-            opponent_obs = self._get_obs(self.opponent, self.agent)
-            self._opponent_controller.current_action = self.opponent_agent.select_action(opponent_obs)
-        
-        prev_agent_hp = self.agent.hp
+            self._opponent_controller.current_action = self.opponent_agent.select_action(self._get_obs(self.opponent, self.agent))
+            
+        phi_before = self._potential()
+        prev_hp = self.agent.hp
         prev_opponent_hp = self.opponent.hp
         
         winner = self.game.step(keys=None, dt=1/S.FPS)
         
+        phi_after = self._potential()
         damage_dealt = prev_opponent_hp - self.opponent.hp
-        damage_taken = prev_agent_hp - self.agent.hp
+        damage_taken = prev_hp - self.agent.hp
         
-        reward = damage_dealt * 0.1 - damage_taken * 0.1 - 0.001
+        reward = damage_dealt * 0.3 - damage_taken * 0.1 - 0.001
+        reward += 0.99 * phi_after - phi_before
+        
         terminated = winner is not None
         truncated = self.current_step >= self.max_steps
         
         if terminated:
-            reward += 10.0 if winner is self.agent else -10.0
-            
+            reward += 30 if winner is self.agent else -30
+        
         if self.render_mode == "human":
             self.render()
             
-        return self._get_obs(self.agent, self.opponent), reward, terminated, truncated, {}
+        return reward, terminated, truncated
+    
+    # frame skip - one agent decision = 4 game frames
+    # summing up rewards over 4 frames into a single step -> 1/4 decisions per fight
+    # adding for faster learning and to see if it fixes the problem of the agent not learning to attack
+    def step(self, action):
+        self._rl_controller.current_action = int(action)
+        total_reward = 0.0
+        terminated = truncated = False
+        
+        for _ in range(self.frame_skip):
+            reward, terminated, truncated = self._step()
+            total_reward += reward
+
+            if terminated or truncated:
+                break
+            
+        return self._get_obs(self.agent, self.opponent), total_reward, terminated, truncated, {}
     
     def render(self):
         self.game.render(self._screen)
