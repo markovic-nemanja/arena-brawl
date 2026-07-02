@@ -29,7 +29,7 @@ class ArenaBrawlEnv(gym.Env):
         self.opponent_agent = opponent_agent
         self.opponent_bot = opponent_bot
         
-        self.observation_space = spaces.Box(low=0, high=1, shape=(16,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=1, shape=(20,), dtype=np.float32)
         self.action_space = spaces.Discrete(10)
         
         self._rl_controller = RLController()
@@ -39,6 +39,8 @@ class ArenaBrawlEnv(gym.Env):
         self.game = None
         self.agent = None
         self.opponent = None
+        
+        self._MAX_HAZARD_SPEED = 500
         
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -90,14 +92,11 @@ class ArenaBrawlEnv(gym.Env):
         closeness = 1 - (distance / self._MAX_DISTANCE)
         aim = (self.agent.last_direction.x * (dx /distance) + self.agent.last_direction.y * (dy / distance)) if distance > 0 else 0
         
-        return 0.3 * closeness + 0.5 * aim
+        return 0.3 * closeness + 0.7 * aim
     
     def _step(self):
         self.current_step += 1
-        
-        if self.opponent_agent is not None:
-            self._opponent_controller.current_action = self.opponent_agent.select_action(self._get_obs(self.opponent, self.agent))
-            
+
         phi_before = self._potential()
         prev_hp = self.agent.hp
         prev_opponent_hp = self.opponent.hp
@@ -127,6 +126,11 @@ class ArenaBrawlEnv(gym.Env):
     # adding for faster learning and to see if it fixes the problem of the agent not learning to attack
     def step(self, action):
         self._rl_controller.current_action = int(action)
+        if self.opponent_agent is not None:                      # decide ONCE per step (held across the 4 frames)
+            opp_action = self.opponent_agent.select_action(self._get_obs(self.opponent, self.agent))
+            if isinstance(opp_action, tuple):   # PPO/A2C return (action, log_prob, value); DQN returns an int
+                opp_action = opp_action[0]
+            self._opponent_controller.current_action = int(opp_action)
         total_reward = 0.0
         terminated = truncated = False
         
@@ -159,35 +163,35 @@ class ArenaBrawlEnv(gym.Env):
     def _get_obs(self, me, them):
         p, o = me, them
         
-        px = (p.x - S.ARENA_LEFT) / self._ARENA_WIDTH
-        py = (p.y - S.ARENA_TOP)  / self._ARENA_HEIGHT
-        ox = (o.x - S.ARENA_LEFT) / self._ARENA_WIDTH
-        oy = (o.y - S.ARENA_TOP)  / self._ARENA_HEIGHT
+        player_x = (p.x - S.ARENA_LEFT) / self._ARENA_WIDTH
+        player_y = (p.y - S.ARENA_TOP)  / self._ARENA_HEIGHT
+        player_hp = np.clip(p.hp / S.PLAYER_MAX_HP, 0, 1)
+        player_cd = min(p.cooldown / p.role.cooldown, 1) if p.role.cooldown > 0 else 0 # min-max normalization [a,b] -> [0,1] : (value-a)/(b-a)
+        player_facing_x = p.last_direction.x * 0.5 + 0.5
+        player_facing_y = p.last_direction.y * 0.5 + 0.5
         
-        php = np.clip(p.hp / S.PLAYER_MAX_HP, 0, 1)
-        ohp = np.clip(o.hp / S.PLAYER_MAX_HP, 0, 1)
-        
-        pcd = min(p.cooldown / p.role.cooldown, 1) if p.role.cooldown > 0 else 0 # min-max normalization [a,b] -> [0,1] : (value-a)/(b-a)
-        ocd = min(o.cooldown / o.role.cooldown, 1) if o.role.cooldown > 0 else 0 # min-max normalization
+        opponent_relative_x = np.clip((o.x - p.x) / self._ARENA_WIDTH * 0.5 + 0.5, 0, 1)
+        opponent_relative_y = np.clip((o.y - p.y) / self._ARENA_HEIGHT * 0.5 + 0.5, 0, 1)
+        opponent_hp = np.clip(o.hp / S.PLAYER_MAX_HP, 0, 1)
+        opponent_cd = min(o.cooldown / o.role.cooldown, 1) if o.role.cooldown > 0 else 0 # min-max normalization
+        opponent_vx = o.last_direction.x * 0.5 + 0.5
+        opponent_vy = o.last_direction.y * 0.5 + 0.5
         
         distance = math.hypot(p.x - o.x, p.y - o.y) / self._MAX_DISTANCE
         
-        max_velocity = S.PLAYER_SPEED * math.sqrt(2)
-        ovx = np.clip(o.vx / max_velocity * 0.5 + 0.5, 0.0, 1.0) # min-max normalization
-        ovy = np.clip(o.vy / max_velocity * 0.5 + 0.5, 0.0, 1.0) # min-max normalization
-        
-        h1x, h1y, h2x, h2y = self._get_hazards(p, o)
+        h1x, h1y, h1vx, h1vy, h2x, h2y = self._get_hazards(p, o)
         
         immobile = 1 if o.stun_timer > 0 else 0
         
         return np.array([
-            px, py, ox, oy,
-            php, ohp,
-            pcd, ocd,
+            player_x, player_y, opponent_relative_x, opponent_relative_y,
+            player_hp, opponent_hp,
+            player_cd, opponent_cd,
+            player_facing_x, player_facing_y,
             distance,
-            ovx, ovy,
-            h1x, h1y, h2x, h2y,
-            immobile   
+            opponent_vx, opponent_vy,
+            h1x, h1y, h1vx, h1vy, h2x, h2y,
+            immobile
         ], dtype=np.float32)
         
     def _get_hazards(self, me, them):
@@ -198,15 +202,19 @@ class ArenaBrawlEnv(gym.Env):
             if not projectile.get("alive", False):
                 continue
             
-            hx = (projectile["x"] - S.ARENA_LEFT) / self._ARENA_WIDTH
-            hy = (projectile["y"] - S.ARENA_TOP) / self._ARENA_HEIGHT
             d = math.hypot(p.x - projectile["x"], p.y - projectile["y"])
-            hazards.append((d, hx, hy))
-            
-        hazards.sort()
-        h1x = hazards[0][1] if len(hazards) > 0 else 0.5
-        h1y = hazards[0][2] if len(hazards) > 0 else 0.5
-        h2x = hazards[1][1] if len(hazards) > 1 else 0.5
-        h2y = hazards[1][2] if len(hazards) > 1 else 0.5
-        return h1x, h1y, h2x, h2y
+            hx = np.clip((projectile["x"] - p.x) / self._ARENA_WIDTH  * 0.5 + 0.5, 0.0, 1.0)
+            hy = np.clip((projectile["y"] - p.y) / self._ARENA_HEIGHT * 0.5 + 0.5, 0.0, 1.0)
+            hvx = np.clip(projectile.get("dx", 0) / self._MAX_HAZARD_SPEED * 0.5 + 0.5, 0.0, 1.0)
+            hvy = np.clip(projectile.get("dy", 0) / self._MAX_HAZARD_SPEED * 0.5 + 0.5, 0.0, 1.0)
+            hazards.append((d, hx, hy, hvx, hvy))
+
+        hazards.sort(key=lambda h: h[0])
+        h1x  = hazards[0][1] if len(hazards) > 0 else 0.5
+        h1y  = hazards[0][2] if len(hazards) > 0 else 0.5
+        h1vx = hazards[0][3] if len(hazards) > 0 else 0.5
+        h1vy = hazards[0][4] if len(hazards) > 0 else 0.5
+        h2x  = hazards[1][1] if len(hazards) > 1 else 0.5
+        h2y  = hazards[1][2] if len(hazards) > 1 else 0.5
+        return h1x, h1y, h1vx, h1vy, h2x, h2y
         
