@@ -4,7 +4,7 @@ import torch.nn as nn
 class DuelingQNetwork(nn.Module):
     def __init__(
         self,
-        state_size=20,
+        state_size=34,
         action_size=10,
         hidden_size=128,
     ):

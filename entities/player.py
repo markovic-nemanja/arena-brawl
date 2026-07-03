@@ -15,6 +15,9 @@ class Player:
         self.vx = 0
         self.vy = 0
         self.last_direction = pygame.math.Vector2(1, 0)  # default facing right
+        # Current movement is distinct from retained facing: action 9 stops the
+        # player but still fires along last_direction.
+        self.move_direction = pygame.math.Vector2(0, 0)
         self.stun_timer = 0
         self.immunity_timer = 0
 
@@ -34,9 +37,11 @@ class Player:
             if self.immunity_timer > 0:
                 self.immunity_timer -= dt
             dx, dy = self.controller.get_movement(keys, self, opponent)
-            
-            if dx != 0 or dy != 0:
-                self.last_direction = pygame.math.Vector2(dx, dy)
+
+        self.move_direction = pygame.math.Vector2(dx, dy)
+
+        if dx != 0 or dy != 0:
+            self.last_direction = pygame.math.Vector2(dx, dy)
 
         self.vx *= 0.8
         self.vy *= 0.8
@@ -63,7 +68,7 @@ class Player:
             self.vy = -S.BOUNCE_FORCE
 
         if self.cooldown > 0:
-            self.cooldown -= dt
+            self.cooldown = max(0.0, self.cooldown - dt)
 
         # Delegate projectile movement and ability state to role
         self.role.update(dt, self, opponent)
