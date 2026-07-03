@@ -201,7 +201,12 @@ def train_ppo(
     save_dir="ai/weights",
     log_path=None,
     resume_path=None,
+    start_stage_index=1,
 ):
+    if not 1 <= start_stage_index <= len(CURRICULUM):
+        raise ValueError(
+            f"start_stage_index must be between 1 and {len(CURRICULUM)}"
+        )
     os.makedirs(save_dir, exist_ok=True)
     if log_path is None:
         log_path = f"ai/logs/ppo_{agent_role.__name__.lower()}.csv"
@@ -233,6 +238,7 @@ def train_ppo(
             "action_size": env.action_space.n,
             "entropy_coef": agent.entropy_coef,
             "resume_path": resume_path,
+            "start_stage": CURRICULUM[start_stage_index - 1].name,
         },
         reinit=True,
     )
@@ -267,6 +273,9 @@ def train_ppo(
 
     try:
         for stage_index, stage in enumerate(CURRICULUM, start=1):
+            if stage_index < start_stage_index:
+                continue
+
             print(
                 f"\n=== {agent_role.__name__}: stage "
                 f"{stage_index}/{len(CURRICULUM)} ({stage.name}) ==="
@@ -276,7 +285,10 @@ def train_ppo(
             consecutive_mastery_evaluations = 0
             stage_mastered = False
 
-            if resume_path is not None and stage_index == 1:
+            if (
+                resume_path is not None
+                and stage_index == start_stage_index
+            ):
                 resume_result = evaluate_policy(
                     agent,
                     agent_role,
@@ -538,12 +550,30 @@ if __name__ == "__main__":
             "before continuing training."
         ),
     )
+    parser.add_argument(
+        "--start-stage",
+        choices=[stage.name for stage in CURRICULUM],
+        default=CURRICULUM[0].name,
+        help="Curriculum stage to continue from (default: stationary).",
+    )
     args = parser.parse_args()
+
+    if args.start_stage != CURRICULUM[0].name and args.resume is None:
+        parser.error("--start-stage after stationary requires --resume")
+
+    start_stage_index = next(
+        index
+        for index, stage in enumerate(CURRICULUM, start=1)
+        if stage.name == args.start_stage
+    )
 
     for role_index, role in enumerate((Gunner, ToxicTrail)):
         successful = train_ppo(
             agent_role=role,
             resume_path=args.resume if role_index == 0 else None,
+            start_stage_index=(
+                start_stage_index if role_index == 0 else 1
+            ),
         )
         if not successful:
             break
