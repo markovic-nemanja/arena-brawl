@@ -19,7 +19,7 @@ class QNetwork(nn.Module):
         return self.network(x)
 
 class DQNAgent:
-    def __init__(self, state_size=34, action_size=10,
+    def __init__(self, state_size=20, action_size=10,
                  learning_rate=0.001, gamma=0.99,
                  epsilon_start=1.0, epsilon_end=0.05, epsilon_decay=0.999,
                  target_update_freq=1000, batch_size=64):
@@ -52,6 +52,20 @@ class DQNAgent:
         with torch.no_grad():
             q_values = self.online_network(state_tensor)
         return q_values.argmax().item()
+
+    def select_actions(self, states):
+        """Epsilon-greedy action selection for parallel environments."""
+        state_tensor = torch.as_tensor(
+            states, dtype=torch.float32, device=self.device
+        )
+        with torch.no_grad():
+            greedy_actions = self.online_network(state_tensor).argmax(dim=1)
+        actions = greedy_actions.cpu().numpy()
+        explore = np.random.random(len(actions)) < self.epsilon
+        actions[explore] = np.random.randint(
+            0, self.action_size, size=int(explore.sum())
+        )
+        return actions
 
     def act(self, state):
         """Evaluation/play: GREEDY (argmax Q, ignores epsilon). Returns just the action int."""

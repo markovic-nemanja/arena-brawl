@@ -8,6 +8,14 @@ class ReplayBuffer:
         
     def store(self, state, action, reward, next_state, done):
         self.buffer.append((state, action, reward, next_state, done))
+
+    def store_batch(self, states, actions, rewards, next_states, dones):
+        for state, action, reward, next_state, done in zip(
+            states, actions, rewards, next_states, dones
+        ):
+            self.buffer.append(
+                (state.copy(), action, reward, next_state.copy(), done)
+            )
         
     def sample(self, batch_size):
         batch = random.sample(self.buffer, batch_size)

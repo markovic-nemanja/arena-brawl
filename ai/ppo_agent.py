@@ -6,9 +6,9 @@ import numpy as np
 from ai.ppo_network import ActorCritic
 
 class PPOAgent:
-    def __init__(self, state_size=34, action_size=10, lr=3e-4, gamma=0.99,
+    def __init__(self, state_size=20, action_size=10, lr=3e-4, gamma=0.99,
                  gae_lambda=0.95, clip_epsilon=0.2, epochs=4, batch_size=64,
-                 entropy_coef=0.01, value_coef=0.5, max_grad_norm=0.5):
+                 entropy_coef=0.005, value_coef=0.5):
 
         self.gamma = gamma
         self.gae_lambda = gae_lambda
@@ -17,7 +17,6 @@ class PPOAgent:
         self.batch_size = batch_size
         self.entropy_coef = entropy_coef
         self.value_coef = value_coef
-        self.max_grad_norm = max_grad_norm
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -34,44 +33,60 @@ class PPOAgent:
         log_prob = dist.log_prob(action)
         return action.item(), log_prob.item(), value.item()
 
-    def act(self, state, deterministic=True):
-        """Select a greedy evaluation action or a sampled diagnostic action."""
+    def select_actions(self, states):
+        """Sample actions for a batch of parallel environments."""
         state_tensor = torch.as_tensor(
-            state, dtype=torch.float32, device=self.device
-        ).unsqueeze(0)
+            states, dtype=torch.float32, device=self.device
+        )
+        with torch.no_grad():
+            logits, values = self.network(state_tensor)
+        distribution = Categorical(logits=logits)
+        actions = distribution.sample()
+        return (
+            actions.cpu().numpy(),
+            distribution.log_prob(actions).cpu().numpy(),
+            values.squeeze(1).cpu().numpy(),
+        )
+
+    def get_values(self, states):
+        state_tensor = torch.as_tensor(
+            states, dtype=torch.float32, device=self.device
+        )
+        with torch.no_grad():
+            _, values = self.network(state_tensor)
+        return values.squeeze(1).cpu().numpy()
+
+    def act(self, state):
+        """Evaluation/play: GREEDY (argmax of the logits). Returns just the action int."""
+        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         with torch.no_grad():
             logits, _ = self.network(state_tensor)
-        if deterministic:
-            return torch.argmax(logits, dim=-1).item()
-        return Categorical(logits=logits).sample().item()
-
-    def get_value(self, state):
-        state_tensor = torch.as_tensor(
-            state, dtype=torch.float32, device=self.device
-        ).unsqueeze(0)
-        with torch.no_grad():
-            _, value = self.network(state_tensor)
-        return value.item()
+        return torch.argmax(logits, dim=-1).item()
 
     def update(self, buffer, last_value):
         advantages, returns = buffer.compute_gae(last_value, self.gamma, self.gae_lambda)
 
-        states = torch.FloatTensor(np.array(buffer.states)).to(self.device)
-        actions = torch.LongTensor(buffer.actions).to(self.device)
-        old_log_probs = torch.FloatTensor(buffer.log_probs).to(self.device)
+        state_array = np.asarray(buffer.states, dtype=np.float32)
+        states = torch.FloatTensor(
+            state_array.reshape(-1, state_array.shape[-1])
+        ).to(self.device)
+        actions = torch.LongTensor(
+            np.asarray(buffer.actions).reshape(-1)
+        ).to(self.device)
+        old_log_probs = torch.FloatTensor(
+            np.asarray(buffer.log_probs).reshape(-1)
+        ).to(self.device)
         advantages = torch.FloatTensor(advantages).to(self.device)
         returns = torch.FloatTensor(returns).to(self.device)
 
-        advantages = (advantages - advantages.mean()) / (
-            advantages.std(unbiased=False) + 1e-8
-        )
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)  # Normalize advantages
         n = len(states)
 
         total_policy_loss = total_value_loss = total_entropy = 0
         num_batches = 0
 
         for _ in range(self.epochs):
-            idx = torch.randperm(n, device=self.device)
+            idx = torch.randperm(n)
 
             for start in range(0, n, self.batch_size):
                 b = idx[start:start + self.batch_size]
@@ -91,9 +106,6 @@ class PPOAgent:
 
                 self.optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    self.network.parameters(), self.max_grad_norm
-                )
                 self.optimizer.step()
 
                 total_policy_loss += policy_loss.item()

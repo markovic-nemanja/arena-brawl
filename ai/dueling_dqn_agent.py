@@ -1,5 +1,6 @@
 import random
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -8,7 +9,7 @@ from ai.dueling_dqn_network import DuelingQNetwork
 
 
 class DuelingDQNAgent:
-    def __init__(self, state_size=34, action_size=10,
+    def __init__(self, state_size=20, action_size=10,
                  learning_rate=0.001, gamma=0.99,
                  epsilon_start=1.0, epsilon_end=0.05, epsilon_decay=0.999,
                  target_update_freq=1000, batch_size=64):
@@ -50,6 +51,20 @@ class DuelingDQNAgent:
             q_values = self.online_network(state_tensor)
 
         return q_values.argmax(dim=1).item()
+
+    def select_actions(self, states):
+        """Epsilon-greedy action selection for parallel environments."""
+        state_tensor = torch.as_tensor(
+            states, dtype=torch.float32, device=self.device
+        )
+        with torch.no_grad():
+            greedy_actions = self.online_network(state_tensor).argmax(dim=1)
+        actions = greedy_actions.cpu().numpy()
+        explore = np.random.random(len(actions)) < self.epsilon
+        actions[explore] = np.random.randint(
+            0, self.action_size, size=int(explore.sum())
+        )
+        return actions
 
     def act(self, state):
         """Select a greedy action during evaluation or play."""

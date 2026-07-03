@@ -17,7 +17,7 @@ class Greedy:
     def __init__(self, agent):
         self.agent = agent
     def select_action(self, state):
-        return self.agent.act(state, deterministic=False)
+        return self.agent.act(state)
 
 AGENT_CLASSES = {
     "dqn": DQNAgent,

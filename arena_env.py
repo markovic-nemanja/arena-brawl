@@ -1,15 +1,69 @@
 import math
+import os
+import random
+from functools import partial
 
 import gymnasium as gym
 import numpy as np
 import pygame
 from gymnasium import spaces
+from gymnasium.vector import AsyncVectorEnv, AutoresetMode, SyncVectorEnv
 
 import settings as S
 from entities.player import Player
 from game import Game
 from systems.controller import EasyBot, RLController
 from systems.roles import Blackhole, Bomber, Dasher, Gunner, Splitter, ToxicTrail
+
+
+def recommended_num_envs(max_workers=16):
+    """Use a power-of-two worker count that divides the training budgets."""
+    override = os.getenv("ARENA_NUM_ENVS")
+    if override:
+        return max(1, int(override))
+    if hasattr(os, "sched_getaffinity"):
+        cpu_count = len(os.sched_getaffinity(0))
+    else:
+        cpu_count = os.cpu_count() or 1
+    available = max(1, min(max_workers, cpu_count))
+    workers = 1
+    while workers * 2 <= available:
+        workers *= 2
+    return workers
+
+
+def create_vector_env(
+    agent_role,
+    opponent_mix,
+    opponent_roles,
+    num_envs,
+    seed,
+    asynchronous=True,
+):
+    """Create seeded simulation workers for one curriculum phase."""
+    env_fns = [
+        partial(
+            ArenaBrawlEnv,
+            agent_role=agent_role(),
+            opponent_mix=opponent_mix,
+            opponent_roles=opponent_roles,
+        )
+        for _ in range(num_envs)
+    ]
+    if asynchronous and num_envs > 1:
+        # Spawn is safe after PyTorch has initialized a CUDA context in the
+        # learner process; forking a CUDA-initialized process is not.
+        env = AsyncVectorEnv(
+            env_fns,
+            context="spawn",
+            autoreset_mode=AutoresetMode.SAME_STEP,
+        )
+    else:
+        env = SyncVectorEnv(
+            env_fns, autoreset_mode=AutoresetMode.SAME_STEP
+        )
+    states, _ = env.reset(seed=[seed + index for index in range(num_envs)])
+    return env, states
 
 
 class ArenaBrawlEnv(gym.Env):
@@ -23,10 +77,11 @@ class ArenaBrawlEnv(gym.Env):
     ROLE_CLASSES = (Gunner, Bomber, Dasher, Blackhole, ToxicTrail, Splitter)
     ROLE_INDEX = {role_class: index for index, role_class in enumerate(ROLE_CLASSES)}
 
+    # Compact state used by every algorithm:
     # self position (2), opponent relative position (2), HP/cooldowns (4),
-    # self facing/movement (4), opponent facing/movement (4), distance/stun (2),
-    # opponent role (6), and two hazards x 5 values = 34.
-    OBSERVATION_SIZE = 34
+    # self facing (2), opponent facing/movement (4), opponent role (1),
+    # and the nearest hazard (present, x, y, vx, vy) (5) = 20.
+    OBSERVATION_SIZE = 20
 
     def __init__(
         self,
@@ -36,6 +91,8 @@ class ArenaBrawlEnv(gym.Env):
         max_steps=5400,
         opponent_agent=None,
         opponent_bot=EasyBot,
+        opponent_mix=None,
+        opponent_roles=None,
     ):
         super().__init__()
         self.render_mode = render_mode
@@ -48,6 +105,8 @@ class ArenaBrawlEnv(gym.Env):
         self.opponent_role = opponent_role or Gunner()
         self.opponent_agent = opponent_agent
         self.opponent_bot = opponent_bot
+        self.opponent_mix = opponent_mix
+        self.opponent_roles = opponent_roles
 
         self.observation_space = spaces.Box(
             low=-1.0,
@@ -67,6 +126,21 @@ class ArenaBrawlEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        if seed is not None:
+            random.seed(seed)
+
+        if self.opponent_mix:
+            factories = [factory for factory, _ in self.opponent_mix]
+            weights = np.asarray(
+                [weight for _, weight in self.opponent_mix], dtype=np.float64
+            )
+            weights /= weights.sum()
+            index = int(self.np_random.choice(len(factories), p=weights))
+            self.opponent_bot = factories[index]
+
+        if self.opponent_roles:
+            role_index = int(self.np_random.integers(0, len(self.opponent_roles)))
+            self.opponent_role = self.opponent_roles[role_index]()
         self._rl_controller.current_action = 0
         self._opponent_controller.current_action = 0
         self.current_frame = 0
@@ -220,16 +294,9 @@ class ArenaBrawlEnv(gym.Env):
         player_cooldown = self._cooldown_fraction(me)
         opponent_cooldown = self._cooldown_fraction(them)
 
-        player_movement = getattr(me, "move_direction", pygame.math.Vector2())
         opponent_movement = getattr(
             them, "move_direction", pygame.math.Vector2()
         )
-        distance = np.clip(
-            math.hypot(me.x - them.x, me.y - them.y) / self._MAX_DISTANCE,
-            0.0,
-            1.0,
-        )
-        opponent_immobile = 1.0 if them.stun_timer > 0 else 0.0
 
         observation = np.array(
             [
@@ -243,16 +310,12 @@ class ArenaBrawlEnv(gym.Env):
                 opponent_cooldown,
                 me.last_direction.x,
                 me.last_direction.y,
-                player_movement.x,
-                player_movement.y,
                 them.last_direction.x,
                 them.last_direction.y,
                 opponent_movement.x,
                 opponent_movement.y,
-                distance,
-                opponent_immobile,
-                *self._role_one_hot(them.role),
-                *self._get_hazards(me, them),
+                self._role_value(them.role),
+                *self._get_nearest_hazard(me, them),
             ],
             dtype=np.float32,
         )
@@ -264,14 +327,13 @@ class ArenaBrawlEnv(gym.Env):
             return 0.0
         return float(np.clip(player.cooldown / player.role.cooldown, 0.0, 1.0))
 
-    def _role_one_hot(self, role):
-        values = [0.0] * len(self.ROLE_CLASSES)
+    def _role_value(self, role):
         index = self.ROLE_INDEX.get(type(role))
-        if index is not None:
-            values[index] = 1.0
-        return values
+        if index is None or len(self.ROLE_CLASSES) <= 1:
+            return 0.0
+        return index / (len(self.ROLE_CLASSES) - 1)
 
-    def _get_hazards(self, me, them):
+    def _get_nearest_hazard(self, me, them):
         hazards = []
         for projectile in them.projectiles:
             if not projectile.get("alive", False):
@@ -300,16 +362,11 @@ class ArenaBrawlEnv(gym.Env):
                 (distance, 1.0, relative_x, relative_y, velocity_x, velocity_y)
             )
 
-        hazards.sort(key=lambda hazard: hazard[0])
-        result = []
-        for index in range(2):
-            if index < len(hazards):
-                result.extend(hazards[index][1:])
-            else:
-                # Presence=0 distinguishes no hazard from a stationary hazard
-                # exactly on the observing player.
-                result.extend((0.0, 0.0, 0.0, 0.0, 0.0))
-        return result
+        if not hazards:
+            # Presence=0 distinguishes no hazard from a stationary hazard
+            # exactly on the observing player.
+            return (0.0, 0.0, 0.0, 0.0, 0.0)
+        return min(hazards, key=lambda hazard: hazard[0])[1:]
 
     def render(self):
         self.game.render(self._screen)
