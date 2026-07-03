@@ -556,6 +556,12 @@ if __name__ == "__main__":
         default=CURRICULUM[0].name,
         help="Curriculum stage to continue from (default: stationary).",
     )
+    parser.add_argument(
+        "--role",
+        choices=("gunner", "toxictrail"),
+        default="gunner",
+        help="First role to train or resume (default: gunner).",
+    )
     args = parser.parse_args()
 
     if args.start_stage != CURRICULUM[0].name and args.resume is None:
@@ -567,7 +573,15 @@ if __name__ == "__main__":
         if stage.name == args.start_stage
     )
 
-    for role_index, role in enumerate((Gunner, ToxicTrail)):
+    role_order = (Gunner, ToxicTrail)
+    selected_role_index = next(
+        index
+        for index, role in enumerate(role_order)
+        if role.__name__.lower() == args.role
+    )
+    selected_roles = role_order[selected_role_index:]
+
+    for role_index, role in enumerate(selected_roles):
         successful = train_ppo(
             agent_role=role,
             resume_path=args.resume if role_index == 0 else None,

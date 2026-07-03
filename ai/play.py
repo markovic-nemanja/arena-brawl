@@ -7,7 +7,7 @@ from ai.dueling_dqn_agent import DuelingDQNAgent
 
 # --- choose what to watch ---
 ROLE = Gunner # role to play against
-ALGORITHM = "dueling_dqn" # "ppo" or "dqn"
+ALGORITHM = "ppo" # "ppo" or "dqn"
 STAGE = "final" # weight-file suffix (e.g. "final", "league")
 WEIGHTS = f"ai/weights/{ALGORITHM}_{ROLE.__name__.lower()}_{STAGE}.pth"
 
@@ -17,7 +17,7 @@ class Greedy:
     def __init__(self, agent):
         self.agent = agent
     def select_action(self, state):
-        return self.agent.act(state)
+        return self.agent.act(state, deterministic=False)
 
 AGENT_CLASSES = {
     "dqn": DQNAgent,
