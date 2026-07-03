@@ -3,11 +3,12 @@ from arena_env import ArenaBrawlEnv
 from systems.roles import *
 from ai.ppo_agent import PPOAgent
 from ai.dqn_agent import DQNAgent
+from ai.dueling_dqn_agent import DuelingDQNAgent
 
 # --- choose what to watch ---
 ROLE = Gunner # role to play against
-ALGORITHM = "ppo" # "ppo" or "dqn"
-STAGE = "1501184" # weight-file suffix (e.g. "final", "league")
+ALGORITHM = "dueling_dqn" # "ppo" or "dqn"
+STAGE = "final" # weight-file suffix (e.g. "final", "league")
 WEIGHTS = f"ai/weights/{ALGORITHM}_{ROLE.__name__.lower()}_{STAGE}.pth"
 
 # Greedy opponent: the env drives the opponent by calling .select_action().
@@ -18,7 +19,13 @@ class Greedy:
     def select_action(self, state):
         return self.agent.act(state)
 
-agent = PPOAgent() if ALGORITHM == "ppo" else DQNAgent()
+AGENT_CLASSES = {
+    "dqn": DQNAgent,
+    "dueling_dqn": DuelingDQNAgent,
+    "ppo": PPOAgent,
+}
+
+agent = AGENT_CLASSES[ALGORITHM]()
 agent.load(WEIGHTS)
 print(f"[play]  {ALGORITHM.upper()}  body={ROLE.__name__}  brain={WEIGHTS}")   # body and brain must match
 

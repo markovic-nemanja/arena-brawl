@@ -6,9 +6,19 @@ from systems.roles import *
 from systems.controller import EasyBot, MediumBot, HardBot
 from ai.ppo_agent import PPOAgent
 from ai.dqn_agent import DQNAgent
+from ai.dueling_dqn_agent import DuelingDQNAgent
 
 def _load(weights, algo):
-    agent = PPOAgent() if algo == "ppo" else DQNAgent()
+    agents = {
+        "dqn": DQNAgent,
+        "dueling_dqn": DuelingDQNAgent,
+        "ppo": PPOAgent,
+    }
+
+    if algo not in agents:
+        raise ValueError(f"Unknown algorithm: {algo}")
+
+    agent = agents[algo]()
     agent.load(weights)
     return agent
 
