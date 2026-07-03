@@ -5,9 +5,9 @@ from ai.ppo_agent import PPOAgent
 from ai.dqn_agent import DQNAgent
 
 # --- choose what to watch ---
-ROLE = Gunner # role to play against
+ROLE = ToxicTrail # role to play against
 ALGORITHM = "ppo" # "ppo" or "dqn"
-STAGE = "1501184" # weight-file suffix (e.g. "final", "league")
+STAGE = "final" # weight-file suffix (e.g. "final", "league")
 WEIGHTS = f"ai/weights/{ALGORITHM}_{ROLE.__name__.lower()}_{STAGE}.pth"
 
 # Greedy opponent: the env drives the opponent by calling .select_action().

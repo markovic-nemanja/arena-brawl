@@ -2,7 +2,7 @@ import pygame
 import sys
 import settings as S
 from entities.player import Player
-from systems.controller import KeyboardController, EasyBot, MediumBot
+from systems.controller import HardBot, KeyboardController, EasyBot, MediumBot
 from systems.roles import Gunner, Bomber, ROLES
 from systems import ui
 from game import Game
@@ -18,7 +18,7 @@ def make_players(mode):
     if mode == 1:
         role1 = ui.role_select(screen, 1, ROLES)
         p1 = Player(x=P1X, y=Y, color=S.PURPLE, controller=KeyboardController(pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d), role=role1)
-        p2 = Player(x=P2X, y=Y, color=S.ORANGE, controller=MediumBot(), role=Bomber())
+        p2 = Player(x=P2X, y=Y, color=S.ORANGE, controller=HardBot(), role=Gunner())
     elif mode == 2:
         role1 = ui.role_select(screen, 1, ROLES)
         role2 = ui.role_select(screen, 2, ROLES)

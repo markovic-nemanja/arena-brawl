@@ -10,6 +10,16 @@ from systems.roles import *
 from game import Game
 import random
 
+# --- reward shaping weights (tunable) ---
+_W_CLOSENESS  = 0.25   # PBRS: reward being near the opponent (kept low; high closeness caused recklessness)
+_W_AIM        = 0.35   # PBRS: reward facing the opponent
+_W_OFFENSE    = 0.40   # PBRS: reward my NEAREST hazard being close to the opponent (the discovery signal)
+_IDLE_PENALTY = 0.01   # per-decision penalty for the 'do nothing' action
+_WALL_PENALTY = 0.01   # per-decision penalty scale for hugging walls/corners
+_WALL_MARGIN  = 100    # px from a wall where the camping penalty starts
+_MISFIRE_PENALTY = 0.1 # penalty for firing while NOT aimed at the opponent
+_AIM_THRESHOLD   = 0.5 # cos(60 deg): a real shot with facing.opponent below this is a 'misfire'
+
 class ArenaBrawlEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
     
@@ -91,8 +101,27 @@ class ArenaBrawlEnv(gym.Env):
         
         closeness = 1 - (distance / self._MAX_DISTANCE)
         aim = (self.agent.last_direction.x * (dx /distance) + self.agent.last_direction.y * (dy / distance)) if distance > 0 else 0
-        
-        return 0.3 * closeness + 0.7 * aim
+
+        # offense: how close is my NEAREST hazard (bullet/bomb/trail/phantom/zone) to the opponent.
+        # This is the discovery signal — a bullet travelling toward the enemy raises the potential every
+        # step, so "aim and fire near the target" pays off before a clean hit ever lands. Role-agnostic
+        # (every role exposes get_hazards), and being in the potential keeps it policy-invariant.
+        hazards = self.agent.role.get_hazards(self.agent)
+        if hazards:
+            min_hz = min(math.hypot(hx - self.opponent.x, hy - self.opponent.y) for hx, hy in hazards)
+            offense = 1 - (min_hz / self._MAX_DISTANCE)
+        else:
+            offense = 0.0
+
+        return _W_CLOSENESS * closeness + _W_AIM * aim + _W_OFFENSE * offense
+
+    def _wall_proximity(self):
+        """0 in the open arena; rises toward ~2.0 in a corner (both axes pinned to a wall)."""
+        mx = min(self.agent.x - S.ARENA_LEFT, S.ARENA_RIGHT - self.agent.x)
+        my = min(self.agent.y - S.ARENA_TOP,  S.ARENA_BOTTOM - self.agent.y)
+        px = max(0.0, (_WALL_MARGIN - mx) / _WALL_MARGIN)
+        py = max(0.0, (_WALL_MARGIN - my) / _WALL_MARGIN)
+        return px + py
     
     def _step(self):
         self.current_step += 1
@@ -131,6 +160,7 @@ class ArenaBrawlEnv(gym.Env):
             if isinstance(opp_action, tuple):   # PPO/A2C return (action, log_prob, value); DQN returns an int
                 opp_action = opp_action[0]
             self._opponent_controller.current_action = int(opp_action)
+        cd_before = self.agent.cooldown          # >0 means a FIRE action can't actually shoot this step
         total_reward = 0.0
         terminated = truncated = False
         
@@ -140,7 +170,24 @@ class ArenaBrawlEnv(gym.Env):
 
             if terminated or truncated:
                 break
-            
+
+        # per-decision behaviour penalties (NOT policy-invariant — intentional bias toward
+        # active, mobile play). Skipped on the terminal step so they can't dent a win/loss.
+        if not terminated:
+            moved      = 1 <= int(action) <= 8                      # a real movement action
+            fired_shot = int(action) == 9 and cd_before <= 0        # FIRE that actually released a bullet
+            if not moved and not fired_shot:                        # idle, OR mashing FIRE on cooldown
+                total_reward -= _IDLE_PENALTY
+            if fired_shot:                                          # penalize shooting away from the target
+                dx = self.opponent.x - self.agent.x
+                dy = self.opponent.y - self.agent.y
+                dist = math.hypot(dx, dy)
+                if dist > 0:
+                    aim = self.agent.last_direction.x * (dx/dist) + self.agent.last_direction.y * (dy/dist)
+                    if aim < _AIM_THRESHOLD:
+                        total_reward -= _MISFIRE_PENALTY
+            total_reward -= _WALL_PENALTY * self._wall_proximity()  # discourage corner/wall camping
+
         return self._get_obs(self.agent, self.opponent), total_reward, terminated, truncated, {}
     
     def render(self):
