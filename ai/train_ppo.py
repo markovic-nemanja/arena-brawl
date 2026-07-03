@@ -1,3 +1,4 @@
+import argparse
 import csv
 import os
 import random
@@ -199,6 +200,7 @@ def train_ppo(
     evaluation_episodes=50,
     save_dir="ai/weights",
     log_path=None,
+    resume_path=None,
 ):
     os.makedirs(save_dir, exist_ok=True)
     if log_path is None:
@@ -210,6 +212,13 @@ def train_ppo(
         state_size=env.observation_space.shape[0],
         action_size=env.action_space.n,
     )
+    if resume_path is not None:
+        if not os.path.isfile(resume_path):
+            raise FileNotFoundError(
+                f"Resume checkpoint does not exist: {resume_path}"
+            )
+        agent.load(resume_path)
+        print(f"Resumed {agent_role.__name__} from {resume_path}")
     buffer = RolloutBuffer()
 
     wandb.init(
@@ -223,6 +232,7 @@ def train_ppo(
             "observation_size": env.observation_space.shape[0],
             "action_size": env.action_space.n,
             "entropy_coef": agent.entropy_coef,
+            "resume_path": resume_path,
         },
         reinit=True,
     )
@@ -265,6 +275,23 @@ def train_ppo(
             last_evaluation = 0
             consecutive_mastery_evaluations = 0
             stage_mastered = False
+
+            if resume_path is not None and stage_index == 1:
+                resume_result = evaluate_policy(
+                    agent,
+                    agent_role,
+                    stage,
+                    episodes=evaluation_episodes,
+                    deterministic=True,
+                    seed=10_000 + stage_index * 1_000,
+                )
+                print(
+                    "resume_check "
+                    f"greedy_win={resume_result['win_rate']:.1%} "
+                    f"draw={resume_result['draw_rate']:.1%}"
+                )
+                if resume_result["win_rate"] >= stage.required_win_rate:
+                    consecutive_mastery_evaluations = 1
 
             configure_opponent(env, stage, agent_role)
             state, _ = env.reset()
@@ -342,7 +369,14 @@ def train_ppo(
                 )
                 greedy_result = None
 
-                if stage_steps - last_evaluation >= evaluation_every:
+                # rollout_size does not necessarily divide evaluation_every.
+                # Always evaluate at the stage limit so a final qualifying
+                # result is not skipped just short of the next interval.
+                should_evaluate = (
+                    stage_steps - last_evaluation >= evaluation_every
+                    or stage_steps >= max_steps_per_stage
+                )
+                if should_evaluate:
                     last_evaluation = stage_steps
                     greedy_result = evaluate_policy(
                         agent,
@@ -496,7 +530,20 @@ def train_ppo(
 
 
 if __name__ == "__main__":
-    for role in (Gunner, ToxicTrail):
-        successful = train_ppo(agent_role=role)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--resume",
+        help=(
+            "Load policy weights for the first role from this checkpoint "
+            "before continuing training."
+        ),
+    )
+    args = parser.parse_args()
+
+    for role_index, role in enumerate((Gunner, ToxicTrail)):
+        successful = train_ppo(
+            agent_role=role,
+            resume_path=args.resume if role_index == 0 else None,
+        )
         if not successful:
             break
