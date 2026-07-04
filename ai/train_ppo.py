@@ -34,12 +34,12 @@ PHASES = {
     1: {
         "name": "stationary",
         "mix": ((StationaryBot, 1.0),),
-        "gate": 0.90,
+        "gate": 0.75,
     },
     2: {
         "name": "random_movement",
         "mix": ((RandomBot, 1.0),),
-        "gate": 0.70,
+        "gate": 0.65,
     },
     3: {
         "name": "random_shooter",
@@ -49,17 +49,17 @@ PHASES = {
     4: {
         "name": "gentle_50",
         "mix": ((partial(GentleAggressor, fire_prob=0.50), 1.0),),
-        "gate": 0.50,
+        "gate": 0.45,
     },
     5: {
         "name": "easy",
         "mix": ((EasyBot, 1.0),),
-        "gate": 0.40,
+        "gate": 0.35,
     },
     6: {
         "name": "easy_medium",
         "mix": ((EasyBot, 0.40), (MediumBot, 0.60)),
-        "gate": 0.35,
+        "gate": 0.30,
     },
 }
 
@@ -92,9 +92,11 @@ class Curriculum:
     phase: int = 1
     phase_start_step: int = 0
     pass_streak: int = 0
-    required_passes: int = 3
+    required_passes: int = 2
     minimum_phase_steps: int = 100_000
+    maximum_phase_steps: int = 300_000
     best_win_rates: dict = field(default_factory=dict)
+    last_promotion_reason: str = ""
 
     def record_evaluation(self, win_rate, global_step):
         self.best_win_rates[self.phase] = max(
@@ -106,11 +108,17 @@ class Curriculum:
             self.pass_streak = 0
 
         phase_steps = global_step - self.phase_start_step
-        if (
+        mastered = (
             self.phase < max(PHASES)
             and phase_steps >= self.minimum_phase_steps
             and self.pass_streak >= self.required_passes
-        ):
+        )
+        reached_cap = (
+            self.phase < max(PHASES)
+            and phase_steps >= self.maximum_phase_steps
+        )
+        if mastered or reached_cap:
+            self.last_promotion_reason = "mastery" if mastered else "step_cap"
             self.phase += 1
             self.phase_start_step = global_step
             self.pass_streak = 0
@@ -124,7 +132,9 @@ class Curriculum:
             "pass_streak": self.pass_streak,
             "required_passes": self.required_passes,
             "minimum_phase_steps": self.minimum_phase_steps,
+            "maximum_phase_steps": self.maximum_phase_steps,
             "best_win_rates": self.best_win_rates,
+            "last_promotion_reason": self.last_promotion_reason,
         }
 
     @classmethod
@@ -212,6 +222,7 @@ def train_ppo(
     wandb_mode="online",
     device=None,
     resume_path=None,
+    reset_phase_progress=False,
 ):
     if num_envs != 20:
         raise ValueError(
@@ -243,6 +254,14 @@ def train_ppo(
         steps_done = int(checkpoint.get("global_step", 0))
         update_number = int(checkpoint.get("update", 0))
         curriculum = Curriculum.from_state_dict(checkpoint.get("curriculum"))
+        # Old checkpoints predate the corrected gates/cap. Always use the
+        # current curriculum policy while retaining their learned phase.
+        curriculum.required_passes = 2
+        curriculum.minimum_phase_steps = 100_000
+        curriculum.maximum_phase_steps = 300_000
+        if reset_phase_progress:
+            curriculum.phase_start_step = steps_done
+            curriculum.pass_streak = 0
 
     config = {
         "role": agent_role.__name__,
@@ -448,6 +467,7 @@ def train_ppo(
                     "eval/phase": evaluated_phase,
                     "eval/gate": PHASES[evaluated_phase]["gate"],
                     "eval/pass_streak": curriculum.pass_streak,
+                    "eval/promotion_reason": curriculum.last_promotion_reason,
                     **{f"eval/{key}": value for key, value in evaluation.items()},
                 })
                 print(
@@ -455,7 +475,10 @@ def train_ppo(
                     f"{evaluation['win_rate']:.1%} | timeout "
                     f"{evaluation['timeout_rate']:.1%} | gate "
                     f"{PHASES[evaluated_phase]['gate']:.0%}"
-                    + (" | PROMOTED" if promoted else "")
+                    + (
+                        f" | PROMOTED ({curriculum.last_promotion_reason})"
+                        if promoted else ""
+                    )
                 )
                 next_eval_step += eval_interval
 
@@ -501,6 +524,7 @@ def parse_args():
     )
     parser.add_argument("--device", choices=("cpu", "cuda"), default=None)
     parser.add_argument("--resume", default=None)
+    parser.add_argument("--reset-phase-progress", action="store_true")
     parser.add_argument("--sync-envs", action="store_true")
     return parser.parse_args()
 
@@ -523,5 +547,6 @@ if __name__ == "__main__":
         wandb_mode=args.wandb_mode,
         device=args.device,
         resume_path=args.resume,
+        reset_phase_progress=args.reset_phase_progress,
         log_path=args.log_path or f"ai/logs/ppo_{args.role}_v2.csv",
     )

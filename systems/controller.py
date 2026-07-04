@@ -71,12 +71,31 @@ class EasyBot:
 
 class GentleAggressor(EasyBot):
     """Chases like EasyBot but only fires a fraction of the time it could.
-    fire_prob is the difficulty dial: 0.4 = survivable ... 1.0 = EasyBot."""
-    def __init__(self, fire_prob=0.4):
+    fire_prob is evaluated once per controlled firing opportunity, not once
+    per game frame. Otherwise a nominal 50% probability becomes 93.75% across
+    one four-frame RL decision and is effectively indistinguishable from 100%.
+    """
+    def __init__(self, fire_prob=0.4, retry_frames=30):
         self.fire_prob = fire_prob
+        self.retry_frames = retry_frames
+        self.fire_retry_timer = 0
 
     def get_action(self, keys, player, opponent):
-        return player.role.should_attack(player, opponent) and random.random() < self.fire_prob
+        if player.cooldown > 0:
+            self.fire_retry_timer = 0
+            return False
+
+        if not player.role.should_attack(player, opponent):
+            self.fire_retry_timer = 0
+            return False
+
+        if self.fire_retry_timer > 0:
+            self.fire_retry_timer -= 1
+            return False
+
+        # A failed decision waits half a second at 60 FPS before trying again.
+        self.fire_retry_timer = self.retry_frames
+        return random.random() < self.fire_prob
 
 class MediumBot:
     def __init__(self):
