@@ -6,9 +6,9 @@ import numpy as np
 from ai.ppo_network import ActorCritic
 
 class PPOAgent:
-    def __init__(self, state_size=20, action_size=10, lr=3e-4, gamma=0.99,
+    def __init__(self, state_size=22, action_size=10, lr=3e-4, gamma=0.99,
                  gae_lambda=0.95, clip_epsilon=0.2, epochs=4, batch_size=64,
-                 entropy_coef=0.005, value_coef=0.5):
+                 entropy_coef=0.01, value_coef=0.5):
 
         self.gamma = gamma
         self.gae_lambda = gae_lambda

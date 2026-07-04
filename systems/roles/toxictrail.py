@@ -8,14 +8,14 @@ class ToxicTrail(Role):
         super().__init__(
             name="Toxic Trail",
             color=S.TOXIC,
-            cooldown=2,
+            cooldown=2.5,
             desc="Fires a toxic trail that lingers and damages on contact",
             select_color=(140, 220, 90)
         )
         self.head_speed = 350
         self.head_radius = 30
-        self.damage = 12
-        self.segment_interval = 0.15
+        self.damage = 10
+        self.segment_interval = 0.20
         self.segment_radius = 30
         self.segment_lifetime = 4
         self.max_segments = 6

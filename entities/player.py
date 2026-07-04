@@ -17,6 +17,8 @@ class Player:
         self.last_direction = pygame.math.Vector2(1, 0)  # default facing right
         self.stun_timer = 0
         self.immunity_timer = 0
+        self.wall_hit_cd = 0
+        self.blackhole_dmg_cd = 0
 
     def use_ability(self):
         if self.cooldown > 0:
@@ -48,19 +50,33 @@ class Player:
         top = S.ARENA_TOP + S.PLAYER_RADIUS
         bottom = S.ARENA_BOTTOM - S.PLAYER_RADIUS
 
+        hit_wall = False
         if self.x <= left:
             self.x  = left
             self.vx = S.BOUNCE_FORCE
+            hit_wall = True
         elif self.x >= right:
             self.x  = right
             self.vx = -S.BOUNCE_FORCE
+            hit_wall = True
 
         if self.y <= top:
             self.y  = top
             self.vy = S.BOUNCE_FORCE
+            hit_wall = True
         elif self.y >= bottom:
             self.y = bottom
             self.vy = -S.BOUNCE_FORCE
+            hit_wall = True
+
+        if self.wall_hit_cd > 0:
+            self.wall_hit_cd -= dt
+        if hit_wall and self.wall_hit_cd <= 0:
+            self.hp -= S.WALL_DAMAGE
+            self.wall_hit_cd = S.WALL_DAMAGE_CD
+
+        if self.blackhole_dmg_cd > 0:
+            self.blackhole_dmg_cd -= dt
 
         if self.cooldown > 0:
             self.cooldown -= dt

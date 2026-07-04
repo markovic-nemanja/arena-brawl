@@ -63,7 +63,9 @@ def check_damage(player, enemy, dt):
                     p["timer"] = p["trap_duration"]
                     player.stun_timer = p["trap_duration"]
             if p["phase"] == "trapping":
-                player.hp -= p["damage_per_second"] * dt
+                if player.blackhole_dmg_cd <= 0:               # one damage tick per interval, however many zones overlap
+                    player.hp -= p["damage_per_second"] * p["dmg_interval"]
+                    player.blackhole_dmg_cd = p["dmg_interval"]
                 dist = math.hypot(p["x"] - player.x, p["y"] - player.y)
                 if dist > 0:
                     pull_x = (p["x"] - player.x) / dist

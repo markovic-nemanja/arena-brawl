@@ -3,44 +3,44 @@ import csv
 import time
 import random
 from functools import partial
+from collections import deque
 
 import wandb
 from arena_env import ArenaBrawlEnv
 from systems.roles import *
 from systems.controller import (StationaryBot, RandomBot, RandomShooterBot,
-                                 GentleAggressor, EasyBot, MediumBot, HardBot)
+                                 AimShooterBot, GentleAggressor, GentleMedium)
 from ai.rollout_buffer import RolloutBuffer
 from ai.ppo_agent import PPOAgent
 
 ALL_ROLES = [Gunner, Bomber, Dasher, ToxicTrail, Blackhole]
 
-# Ramped curriculum. GentleAggressor dials smoothly up to EasyBot (fire_prob 1.0);
-# HardBot is held out as the eval benchmark, not a training rung.
 PHASE_BOTS = {
     1: StationaryBot,
     2: RandomBot,
     3: RandomShooterBot,
-    4: partial(GentleAggressor, fire_prob=0.4),
-    5: partial(GentleAggressor, fire_prob=0.7),
-    6: EasyBot,
-    7: MediumBot,
+    4: partial(AimShooterBot, aim_prob=0.5),
+    5: partial(GentleAggressor, fire_prob=0.5),
+    6: partial(GentleMedium, fire_prob=0.5),
 }
-PHASE_BOUNDS = (200_000, 400_000, 650_000, 950_000, 1_250_000, 1_600_000)
+GRADUATION_PHASE = max(PHASE_BOTS) + 1
+GRAD_BOTS = [PHASE_BOTS[k] for k in (4, 5, 6)]
+MAX_PHASE = GRADUATION_PHASE
 
-def get_phase(steps):
-    phase = 1
-    for b in PHASE_BOUNDS:
-        if steps >= b:
-            phase += 1
-        else:
-            break
-    return phase
+PHASE_MIN = {1:  50_000, 2:  65_000, 3:  85_000, 4: 100_000, 5: 100_000, 6: 100_000} # Minimum amount of steps in phase before promotion is allowed
+PHASE_MAX = {1: 150_000, 2: 200_000, 3: 250_000, 4: 300_000, 5: 300_000, 6: 300_000} # Maximum amount of steps in phase before forced promotion
+PHASE_PROMOTE = {1: 0.85, 2: 0.70, 3: 0.65, 4: 0.55, 5: 0.55, 6: 0.55} # Win-rate threshold for promotion (win-rate over the last WIN_WINDOW episodes)
+WIN_WINDOW = 50 # how many episodes the win-rate is measured over
+GRAD_STEPS = 700_000 # how many steps last pool run has
 
 def _bot_name(phase):
+    """Used for console logging"""
+    if phase == GRADUATION_PHASE:
+        return "Graduation(mix)"
     b = PHASE_BOTS[phase]
     return b.func.__name__ if isinstance(b, partial) else b.__name__
 
-def train_ppo(agent_role=Gunner, total_steps=2_000_000, rollout_size=2048,
+def train_ppo(agent_role=Gunner, total_steps=2_300_000, rollout_size=2048,
               save_dir="ai/weights", log_path="ai/logs/ppo_training.csv"):
 
     os.makedirs(save_dir, exist_ok=True)
@@ -52,7 +52,7 @@ def train_ppo(agent_role=Gunner, total_steps=2_000_000, rollout_size=2048,
 
     wandb.init(project="arena-brawl-ppo", name=agent_role.__name__,
                config={"total_steps": total_steps, "rollout_size": rollout_size,
-                       "entropy_coef": agent.entropy_coef, "phase_bounds": PHASE_BOUNDS},
+                       "entropy_coef": agent.entropy_coef, "phase_promote": PHASE_PROMOTE},
                reinit=True)
 
     log_file = open(log_path, mode='w', newline="")
@@ -62,10 +62,13 @@ def train_ppo(agent_role=Gunner, total_steps=2_000_000, rollout_size=2048,
 
     def set_opponent(phase):
         env.opponent_role = random.choice(ALL_ROLES)()   # random body -> all hazard types appear
-        env.opponent_bot  = PHASE_BOTS[phase]
+        env.opponent_bot  = random.choice(GRAD_BOTS) if phase == GRADUATION_PHASE else PHASE_BOTS[phase]
 
-    last_phase = get_phase(0)
-    set_opponent(last_phase)
+    phase = 1
+    phase_start_steps = 0
+    finished = False
+    recent_wins = deque(maxlen=WIN_WINDOW)
+    set_opponent(phase)
     state, _ = env.reset()
 
     episode_reward = 0
@@ -77,9 +80,9 @@ def train_ppo(agent_role=Gunner, total_steps=2_000_000, rollout_size=2048,
     last_checkpoint = 0
     start_time = last_print = time.time()
 
-    print(f"=== PPO {agent_role.__name__} | Phase {last_phase} ({_bot_name(last_phase)}) ===")
+    print(f"=== PPO {agent_role.__name__} | Phase {phase} ({_bot_name(phase)}) ===")
 
-    while steps_done < total_steps:
+    while steps_done < total_steps and not finished:
         # Collect a rollout of transitions
         for _ in range(rollout_size):
             action, log_prob, value = agent.select_action(state)
@@ -92,19 +95,30 @@ def train_ppo(agent_role=Gunner, total_steps=2_000_000, rollout_size=2048,
 
             if done:
                 completed_rewards.append(episode_reward)
-                if terminated and env.opponent.hp <= 0:
-                    wins += 1
+                win = 1 if (terminated and env.agent.hp > 0) else 0# alive at termination == we won
+                wins += win
+                recent_wins.append(win)
                 episode_reward = 0
 
-                phase = get_phase(steps_done)
-                if phase != last_phase:
-                    elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
-                    print(f"[{elapsed}] === {agent_role.__name__} | Phase {phase} ({_bot_name(phase)}) @ step {steps_done} ===")
-                    last_phase = phase
+                # Promote on win-rate mastery once past the floor; force-promote at the ceiling.
+                if phase < MAX_PHASE:
+                    in_phase = steps_done - phase_start_steps
+                    wr = sum(recent_wins) / len(recent_wins) if recent_wins else 0
+                    mastered = in_phase >= PHASE_MIN[phase] and len(recent_wins) >= WIN_WINDOW and wr >= PHASE_PROMOTE[phase]
+                    if mastered or in_phase >= PHASE_MAX[phase]:
+                        phase += 1
+                        phase_start_steps = steps_done
+                        recent_wins.clear()
+                        why = "mastered" if mastered else "cap"
+                        elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
+                        print(f"[{elapsed}] === {agent_role.__name__} | Phase {phase} ({_bot_name(phase)}) @ step {steps_done} ({why}) ===")
+                elif steps_done - phase_start_steps >= GRAD_STEPS:
+                    finished = True   # graduation done — end the run (fixed 500k, no leftover accumulation)
                 set_opponent(phase)
+                
                 state, _ = env.reset()
 
-            if steps_done >= total_steps:
+            if steps_done >= total_steps or finished:
                 break
 
         # Update the policy using the collected rollout
@@ -119,7 +133,6 @@ def train_ppo(agent_role=Gunner, total_steps=2_000_000, rollout_size=2048,
 
         avg_reward = sum(completed_rewards) / len(completed_rewards) if completed_rewards else 0
         win_rate = wins / len(completed_rewards) if completed_rewards else 0
-        phase = get_phase(steps_done)
 
         writer.writerow([update_num, steps_done, phase, round(avg_reward, 3), round(win_rate, 3),
                          round(entropy, 4), round(policy_loss, 4), round(value_loss, 4), len(completed_rewards)])
@@ -149,7 +162,7 @@ if __name__ == "__main__":
     for role in ALL_ROLES:
         print(f"\n######## PPO training: {role.__name__} ########")
         try:
-            train_ppo(agent_role=role, total_steps=2_000_000,
+            train_ppo(agent_role=role, total_steps=2_300_000,
                       log_path=f"ai/logs/ppo_{role.__name__.lower()}.csv")
         except Exception as e:
             print(f"!!! {role.__name__} FAILED: {e} !!!")

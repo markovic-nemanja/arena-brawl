@@ -38,3 +38,5 @@ PLAYER_MAX_HP  = 100
 PLAYER_RADIUS = 38
 BOUNCE_FORCE     = 10
 STUN_IMMUNITY = 1.0
+WALL_DAMAGE    = 2      # hp lost on wall contact
+WALL_DAMAGE_CD = 0.5   # seconds between wall-damage ticks (so pinning isn't instant death)

@@ -28,12 +28,16 @@ class KeyboardController:
         return keys[pygame.K_SPACE]
 
 class StationaryBot:
+    """Stays still and never fires.
+    Used as first opponent, to teach agent to move and fire without being extremely punished."""
     def get_movement(self, keys, player, opponent):
         return 0, 0
     def get_action(self, keys, player, opponent):
         return False
 
 class RandomBot:
+    """Moves randomly
+    Used as a simple opponent to teach agent to aim and fire when possible"""
     def __init__(self):
         self.dx, self.dy = 0, 0
         self.timer = 0
@@ -51,10 +55,37 @@ class RandomBot:
         return False
 
 class RandomShooterBot(RandomBot):
+    """Random movement bot, but fires when possible"""
+    def get_action(self, keys, player, opponent):
+        return player.role.should_attack(player, opponent)
+
+class AimShooterBot(RandomBot):
+    """Random movement but aims at the opponent when firing for 50% of the time.
+    Implemented for teaching agent to dodge."""
+    def __init__(self, aim_prob=0.5):
+        super().__init__()
+        self.aim_prob = aim_prob
+
+    def get_movement(self, keys, player, opponent):
+        self.timer -= 1
+        if self.timer <= 0:
+            if random.random() < self.aim_prob:
+                dx = opponent.x - player.x
+                dy = opponent.y - player.y
+                dist = math.hypot(dx, dy)
+                self.dx, self.dy = (dx / dist, dy / dist) if dist else (1.0, 0.0)
+            else:
+                angle = random.uniform(0, 2 * math.pi)
+                self.dx, self.dy = math.cos(angle), math.sin(angle)
+            self.timer = random.randint(30, 60)
+        return self.dx, self.dy
+
     def get_action(self, keys, player, opponent):
         return player.role.should_attack(player, opponent)
 
 class EasyBot:
+    """Chases opponent and fires when possible.
+    Used as phase opponent - goal teach agent to make space"""
     def __init__(self):
         pass
 
@@ -70,8 +101,8 @@ class EasyBot:
         return player.role.should_attack(player, opponent)
 
 class GentleAggressor(EasyBot):
-    """Chases like EasyBot but only fires a fraction of the time it could.
-    fire_prob is the difficulty dial: 0.4 = survivable ... 1.0 = EasyBot."""
+    """Same playstyle as EasyBot, but fires only given % of time.
+    Used as phase opponent - between two extreme bots"""
     def __init__(self, fire_prob=0.4):
         self.fire_prob = fire_prob
 
@@ -79,6 +110,7 @@ class GentleAggressor(EasyBot):
         return player.role.should_attack(player, opponent) and random.random() < self.fire_prob
 
 class MediumBot:
+    """Kites and strafes, retreats at low HP, fires when possible.w"""
     def __init__(self):
         self.kite_timer = 0
         self.strafe_timer = 0
@@ -199,6 +231,19 @@ class HardBot(MediumBot):
             my /= length
 
         return mx, my
+
+class GentleMedium(MediumBot):
+    """MediumBot (kites, strafes, retreats at low HP) but fires only fire_prob
+    Agent should learn to hunt a target that keeps its distance instead of turtling in a corner."""
+    def __init__(self, fire_prob=0.5):
+        super().__init__()
+        self.fire_prob = fire_prob
+
+    def get_action(self, keys, player, opponent):
+        if player.cooldown <= 0 and random.random() < self.fire_prob and player.role.should_attack(player, opponent):
+            self.kite_timer = 30
+            return True
+        return False
 
 _DIAG = math.sqrt(2) / 2
 _ACTION_TO_MOVE = [

@@ -9,39 +9,38 @@ import wandb
 from arena_env import ArenaBrawlEnv
 from systems.roles import *
 from systems.controller import (StationaryBot, RandomBot, RandomShooterBot,
-                                 GentleAggressor, EasyBot, MediumBot)
+                                 AimShooterBot, GentleAggressor, GentleMedium)
 from ai.replay_buffer import ReplayBuffer
 from ai.dqn_agent import DQNAgent
 
 ALL_ROLES = [Gunner, Bomber, Dasher, ToxicTrail, Blackhole]
 
-# Ramped curriculum. GentleAggressor dials smoothly up to EasyBot (fire_prob 1.0);
-# HardBot is held out as the eval benchmark, not a training rung.
 PHASE_BOTS = {
     1: StationaryBot,
     2: RandomBot,
     3: RandomShooterBot,
-    4: partial(GentleAggressor, fire_prob=0.4),
-    5: partial(GentleAggressor, fire_prob=0.7),
-    6: EasyBot,
-    7: MediumBot,
+    4: partial(AimShooterBot, aim_prob=0.5),
+    5: partial(GentleAggressor, fire_prob=0.5),
+    6: partial(GentleMedium, fire_prob=0.5),
 }
-PHASE_BOUNDS = (200_000, 400_000, 650_000, 950_000, 1_250_000, 1_600_000)
+GRADUATION_PHASE = max(PHASE_BOTS) + 1             # final phase: a RANDOM MIX of all combat bots, so the
+GRAD_BOTS = [PHASE_BOTS[k] for k in (3, 4, 5, 6)]  # big final chunk stays GENERAL instead of overfitting one
+MAX_PHASE = GRADUATION_PHASE
 
-def get_phase(steps):
-    phase = 1
-    for b in PHASE_BOUNDS:
-        if steps >= b:
-            phase += 1
-        else:
-            break
-    return phase
+PHASE_MIN = {1:  50_000, 2:  65_000, 3:  85_000, 4: 100_000, 5: 100_000, 6: 100_000} # Minimum amount of steps in phase before promotion is allowed
+PHASE_MAX = {1: 150_000, 2: 200_000, 3: 250_000, 4: 300_000, 5: 300_000, 6: 300_000} # Maximum amount of steps in phase before forced promotion
+PHASE_PROMOTE = {1: 0.85, 2: 0.70, 3: 0.65, 4: 0.55, 5: 0.55, 6: 0.55} # Win-rate threshold for promotion (win-rate over the last WIN_WINDOW episodes)
+WIN_WINDOW = 50 # how many episodes the win-rate is measured over
+GRAD_STEPS = 700_000 # how many steps last pool run has
 
 def _bot_name(phase):
+    """Used for console logging"""
+    if phase == GRADUATION_PHASE:
+        return "Graduation(mix)"
     b = PHASE_BOTS[phase]
     return b.func.__name__ if isinstance(b, partial) else b.__name__
 
-def train_dqn(agent_role=Gunner, total_steps=2_000_000, buffer_capacity=100000,
+def train_dqn(agent_role=Gunner, total_steps=2_300_000, buffer_capacity=100000,
               batch_size=64, save_dir="ai/weights", log_path="ai/logs/dqn_training.csv",
               checkpoint_every=500_000):
 
@@ -55,7 +54,7 @@ def train_dqn(agent_role=Gunner, total_steps=2_000_000, buffer_capacity=100000,
     wandb.init(project="arena-brawl-dqn", name=agent_role.__name__,
                config={"total_steps": total_steps, "batch_size": batch_size,
                        "buffer_capacity": buffer_capacity, "gamma": agent.gamma,
-                       "epsilon_decay": agent.epsilon_decay, "phase_bounds": PHASE_BOUNDS},
+                       "epsilon_decay": agent.epsilon_decay, "phase_promote": PHASE_PROMOTE},
                reinit=True)
 
     log_file = open(log_path, mode='w', newline='')
@@ -64,19 +63,21 @@ def train_dqn(agent_role=Gunner, total_steps=2_000_000, buffer_capacity=100000,
 
     def set_opponent(phase):
         env.opponent_role = random.choice(ALL_ROLES)()  # random body -> all hazard types appear
-        env.opponent_bot  = PHASE_BOTS[phase]
+        env.opponent_bot  = random.choice(GRAD_BOTS) if phase == GRADUATION_PHASE else PHASE_BOTS[phase]
 
-    last_phase = get_phase(0)
-    set_opponent(last_phase)
+    phase = 1
+    phase_start_steps = 0
+    finished = False
+    set_opponent(phase)
 
     steps_done = 0
     episode = 0
     last_checkpoint = 0
-    recent_wins = deque(maxlen=100)
+    recent_wins = deque(maxlen=WIN_WINDOW)
     start_time = last_print = time.time()
-    print(f"=== DQN {agent_role.__name__} | Phase {last_phase} ({_bot_name(last_phase)}) ===")
+    print(f"=== DQN {agent_role.__name__} | Phase {phase} ({_bot_name(phase)}) ===")
 
-    while steps_done < total_steps:
+    while steps_done < total_steps and not finished:
         state, _ = env.reset()
         total_reward = 0.0
         total_loss = 0.0
@@ -99,18 +100,28 @@ def train_dqn(agent_role=Gunner, total_steps=2_000_000, buffer_capacity=100000,
             steps_done += 1
 
             if done or steps_done >= total_steps:
-                win = 1 if env.opponent.hp <= 0 else 0
+                win = 1 if (terminated and env.agent.hp > 0) else 0   # alive at termination == we won
                 break
 
         agent.decay_epsilon()
         episode += 1
+        recent_wins.append(win)
 
-        phase = get_phase(steps_done)
-        if phase != last_phase:
-            agent.epsilon = max(agent.epsilon, 0.5)   # re-explore against the harder bot
-            elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
-            print(f"[{elapsed}] === {agent_role.__name__} | Phase {phase} ({_bot_name(phase)}) @ step {steps_done} ===")
-            last_phase = phase
+        # Promote on win-rate mastery once past the floor; force-promote at the ceiling.
+        if phase < MAX_PHASE:
+            in_phase = steps_done - phase_start_steps
+            wr = sum(recent_wins) / len(recent_wins) if recent_wins else 0
+            mastered = in_phase >= PHASE_MIN[phase] and len(recent_wins) >= WIN_WINDOW and wr >= PHASE_PROMOTE[phase]
+            if mastered or in_phase >= PHASE_MAX[phase]:
+                phase += 1
+                phase_start_steps = steps_done
+                recent_wins.clear()
+                agent.epsilon = max(agent.epsilon, 0.5) # re-explore against the new opponent
+                why = "mastered" if mastered else "cap"
+                elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
+                print(f"[{elapsed}] === {agent_role.__name__} | Phase {phase} ({_bot_name(phase)}) @ step {steps_done} ({why}) ===")
+        elif steps_done - phase_start_steps >= GRAD_STEPS:
+            finished = True # graduation done — end the run
         set_opponent(phase)
 
         avg_loss = total_loss / loss_count if loss_count > 0 else 0
@@ -118,10 +129,9 @@ def train_dqn(agent_role=Gunner, total_steps=2_000_000, buffer_capacity=100000,
                          round(agent.epsilon, 4), round(avg_loss, 5)])
         log_file.flush()
 
-        recent_wins.append(win)
         wandb.log({"episode": episode, "steps": steps_done, "phase": phase,
                    "reward": total_reward, "win": win,
-                   "win_rate": sum(recent_wins) / len(recent_wins),
+                   "win_rate": sum(recent_wins) / len(recent_wins) if recent_wins else 0,
                    "epsilon": agent.epsilon, "loss": avg_loss})
 
         if steps_done // checkpoint_every > last_checkpoint:
@@ -146,7 +156,7 @@ if __name__ == "__main__":
     for role in ALL_ROLES:
         print(f"\n######## DQN training: {role.__name__} ########")
         try:
-            train_dqn(agent_role=role, total_steps=2_000_000,
+            train_dqn(agent_role=role, total_steps=2_300_000,
                       log_path=f"ai/logs/dqn_{role.__name__.lower()}.csv")
         except Exception as e:
             print(f"!!! {role.__name__} FAILED: {e} !!!")

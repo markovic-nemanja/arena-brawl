@@ -6,8 +6,8 @@ from ai.dqn_agent import DQNAgent
 from ai.dueling_dqn_agent import DuelingDQNAgent
 
 # --- choose what to watch ---
-ROLE = Gunner # role to play against
-ALGORITHM = "dueling_dqn" # "ppo" or "dqn"
+ROLE = Blackhole # role to play against
+ALGORITHM = "ppo" # "ppo" or "dqn"
 STAGE = "final" # weight-file suffix (e.g. "final", "league")
 WEIGHTS = f"ai/weights/{ALGORITHM}_{ROLE.__name__.lower()}_{STAGE}.pth"
 

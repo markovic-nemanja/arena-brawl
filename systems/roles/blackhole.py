@@ -17,6 +17,7 @@ class Blackhole(Role):
         self.zone_duration = 6.0
         self.trap_duration = 1.5
         self.damage_per_second = 15
+        self.dmg_interval = 0.5      # damage ticks this often; the target is immune between ticks, so stacking zones can't multiply DPS
         self.pull_speed = 100
         self.max_active = 4
         self.attack_range = self.throw_distance + self.radius
@@ -41,6 +42,7 @@ class Blackhole(Role):
             "timer": self.zone_duration,
             "trap_duration": self.trap_duration,
             "damage_per_second": self.damage_per_second,
+            "dmg_interval": self.dmg_interval,
             "pull_speed": self.pull_speed,
             "radius": self.radius,
             "alive": True

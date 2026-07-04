@@ -12,9 +12,9 @@ class Bomber(Role):
             desc="Throws a bomb that explodes in a big AOE",
             select_color=(229, 87, 63),
         )
-        self.bomb_fuse = 2.0 # seconds until explosion
+        self.bomb_fuse = 1.3 # seconds until explosion
         self.bomb_travel_speed = 200 # pixels per second
-        self.bomb_radius = 80
+        self.bomb_radius = 100
         self.bomb_damage = 35
         self.attack_range = self.bomb_travel_speed * self.bomb_fuse
 
