@@ -6,9 +6,9 @@ from ai.dqn_agent import DQNAgent
 from ai.dueling_dqn_agent import DuelingDQNAgent
 
 # --- choose what to watch ---
-ROLE = Gunner # role to play against
+ROLE = ToxicTrail # role to play against
 ALGORITHM = "ppo" # "ppo" or "dqn"
-STAGE = "final" # weight-file suffix (e.g. "final", "league")
+STAGE = "v2_final" # weight-file suffix (e.g. "v2_final", "league")
 WEIGHTS = f"ai/weights/{ALGORITHM}_{ROLE.__name__.lower()}_{STAGE}.pth"
 
 # Greedy opponent: the env drives the opponent by calling .select_action().
@@ -37,11 +37,10 @@ _DIR = {(0, 0): 0, (0, -1): 1, (0, 1): 2, (-1, 0): 3, (1, 0): 4,
         (-1, -1): 5, (1, -1): 6, (-1, 1): 7, (1, 1): 8}
 
 def keys_to_action(keys):
-    if keys[pygame.K_SPACE]:
-        return 9                                       # ability (fires in last move direction)
     dx = (1 if keys[pygame.K_d] or keys[pygame.K_RIGHT] else 0) - (1 if keys[pygame.K_a] or keys[pygame.K_LEFT] else 0)
     dy = (1 if keys[pygame.K_s] or keys[pygame.K_DOWN] else 0) - (1 if keys[pygame.K_w] or keys[pygame.K_UP] else 0)
-    return _DIR[(dx, dy)]
+    movement_action = _DIR[(dx, dy)]
+    return movement_action + (9 if keys[pygame.K_SPACE] else 0)
 
 state, _ = env.reset()
 running = True

@@ -12,7 +12,13 @@ from gymnasium.vector import AsyncVectorEnv, AutoresetMode, SyncVectorEnv
 import settings as S
 from entities.player import Player
 from game import Game
-from systems.controller import EasyBot, RLController
+from systems.controller import (
+    EasyBot,
+    RL_ACTION_COUNT,
+    RL_MOVEMENT_ACTIONS,
+    RLController,
+    decode_rl_action,
+)
 from systems.roles import Blackhole, Bomber, Dasher, Gunner, Splitter, ToxicTrail
 
 
@@ -80,8 +86,9 @@ class ArenaBrawlEnv(gym.Env):
     # Compact state used by every algorithm:
     # self position (2), opponent relative position (2), HP/cooldowns (4),
     # self facing (2), opponent facing/movement (4), opponent role (1),
-    # and the nearest hazard (present, x, y, vx, vy) (5) = 20.
-    OBSERVATION_SIZE = 20
+    # nearest enemy hazard (5), wall distances (4), and the most relevant own
+    # ability object (present, x, y, vx, vy, timer, phase) (7) = 31.
+    OBSERVATION_SIZE = 31
 
     def __init__(
         self,
@@ -114,7 +121,7 @@ class ArenaBrawlEnv(gym.Env):
             shape=(self.OBSERVATION_SIZE,),
             dtype=np.float32,
         )
-        self.action_space = spaces.Discrete(10)
+        self.action_space = spaces.Discrete(RL_ACTION_COUNT)
 
         self._rl_controller = RLController()
         self._opponent_controller = RLController()
@@ -224,7 +231,13 @@ class ArenaBrawlEnv(gym.Env):
         return direction.normalize()
 
     def step(self, action):
-        self._rl_controller.current_action = int(action)
+        action = int(action)
+        self._rl_controller.current_action = action
+
+        move_x, move_y, wants_to_fire = decode_rl_action(action)
+        wall_blocked = self._is_outward_wall_action(self.agent, move_x, move_y)
+        ability_cast = wants_to_fire and self.agent.cooldown <= 0
+        aim_alignment = self._aim_alignment(self.agent, self.opponent)
 
         if self.opponent_agent is not None:
             opponent_obs = self._get_obs(self.opponent, self.agent)
@@ -250,17 +263,24 @@ class ArenaBrawlEnv(gym.Env):
         damage_dealt = max(0.0, previous_opponent_hp - self.opponent.hp)
         damage_taken = max(0.0, previous_agent_hp - self.agent.hp)
 
-        # A role-neutral reward: trading equal damage is neutral, dealing damage
-        # is good, taking damage is bad. No closeness term forces ranged roles
-        # into point-blank combat, and reward is calculated once per RL decision.
+        # A role-neutral reward. Removing an entire health bar is worth +1 and
+        # losing one is worth -1; the terminal outcome remains the main goal.
         reward = (damage_dealt - damage_taken) / S.PLAYER_MAX_HP
+
+        # Discourage actions that repeatedly push into a boundary, without
+        # changing combat HP or punishing legitimate movement near a wall.
+        if wall_blocked:
+            reward -= 0.002
 
         terminated = winner is not None
         truncated = not terminated and self.current_frame >= self.max_frames
 
         if terminated:
-            reward += 1.0 if winner is self.agent else -1.0
+            reward += 3.0 if winner is self.agent else -3.0
         elif truncated:
+            reward += 0.5 * (
+                self.agent.hp - self.opponent.hp
+            ) / S.PLAYER_MAX_HP
             reward -= 0.25
 
         info = {
@@ -268,6 +288,10 @@ class ArenaBrawlEnv(gym.Env):
             "damage_taken": damage_taken,
             "agent_hp": self.agent.hp,
             "opponent_hp": self.opponent.hp,
+            "wall_blocked": wall_blocked,
+            "ability_cast": ability_cast,
+            "wants_to_fire": wants_to_fire,
+            "aim_alignment": aim_alignment if ability_cast else 0.0,
         }
         return (
             self._get_obs(self.agent, self.opponent),
@@ -316,6 +340,8 @@ class ArenaBrawlEnv(gym.Env):
                 opponent_movement.y,
                 self._role_value(them.role),
                 *self._get_nearest_hazard(me, them),
+                *self._wall_distances(me),
+                *self._get_own_ability_object(me, them),
             ],
             dtype=np.float32,
         )
@@ -367,6 +393,100 @@ class ArenaBrawlEnv(gym.Env):
             # exactly on the observing player.
             return (0.0, 0.0, 0.0, 0.0, 0.0)
         return min(hazards, key=lambda hazard: hazard[0])[1:]
+
+    def _wall_distances(self, player):
+        """Normalized center-to-wall distances, ordered left/right/top/bottom."""
+        left = S.ARENA_LEFT + S.PLAYER_RADIUS
+        right = S.ARENA_RIGHT - S.PLAYER_RADIUS
+        top = S.ARENA_TOP + S.PLAYER_RADIUS
+        bottom = S.ARENA_BOTTOM - S.PLAYER_RADIUS
+        return (
+            np.clip((player.x - left) / max(right - left, 1.0), 0.0, 1.0),
+            np.clip((right - player.x) / max(right - left, 1.0), 0.0, 1.0),
+            np.clip((player.y - top) / max(bottom - top, 1.0), 0.0, 1.0),
+            np.clip((bottom - player.y) / max(bottom - top, 1.0), 0.0, 1.0),
+        )
+
+    def _get_own_ability_object(self, me, them):
+        """Describe the live own projectile most relevant to the opponent.
+
+        Feed-forward policies previously had no way to know where their bomb,
+        phantom, or lingering trail was. Selecting the object closest to the
+        opponent provides a fixed-size, role-neutral summary.
+        """
+        live = [p for p in me.projectiles if p.get("alive", False)]
+        if not live:
+            return (0.0,) * 7
+
+        projectile = min(
+            live,
+            key=lambda p: math.hypot(p["x"] - them.x, p["y"] - them.y),
+        )
+        relative_x = np.clip(
+            (projectile["x"] - me.x) / self._ARENA_WIDTH, -1.0, 1.0
+        )
+        relative_y = np.clip(
+            (projectile["y"] - me.y) / self._ARENA_HEIGHT, -1.0, 1.0
+        )
+        velocity_x = np.clip(
+            projectile.get("dx", 0.0) / self._MAX_HAZARD_SPEED, -1.0, 1.0
+        )
+        velocity_y = np.clip(
+            projectile.get("dy", 0.0) / self._MAX_HAZARD_SPEED, -1.0, 1.0
+        )
+
+        raw_timer = projectile.get("timer", projectile.get("lifetime", 0.0))
+        timer_scale = max(
+            1.0,
+            float(getattr(me.role, "bomb_fuse", 0.0)),
+            float(getattr(me.role, "phantom_time", 0.0)),
+            float(getattr(me.role, "segment_lifetime", 0.0)),
+        )
+        timer = np.clip(float(raw_timer) / timer_scale, -1.0, 1.0)
+        phase = {
+            "waiting": -1.0,
+            "merging": 1.0,
+            "flying": -1.0,
+            "armed": 0.5,
+            "trapping": 1.0,
+        }.get(projectile.get("phase"), 0.0)
+        return (1.0, relative_x, relative_y, velocity_x, velocity_y, timer, phase)
+
+    @staticmethod
+    def _aim_alignment(player, opponent):
+        dx = opponent.x - player.x
+        dy = opponent.y - player.y
+        distance = math.hypot(dx, dy)
+        if distance <= 0:
+            return 0.0
+        return float(np.clip(
+            player.last_direction.x * dx / distance
+            + player.last_direction.y * dy / distance,
+            -1.0,
+            1.0,
+        ))
+
+    @staticmethod
+    def _is_outward_wall_action(player, move_x, move_y):
+        epsilon = 1.0
+        left = S.ARENA_LEFT + S.PLAYER_RADIUS
+        right = S.ARENA_RIGHT - S.PLAYER_RADIUS
+        top = S.ARENA_TOP + S.PLAYER_RADIUS
+        bottom = S.ARENA_BOTTOM - S.PLAYER_RADIUS
+        return bool(
+            (player.x <= left + epsilon and move_x < 0)
+            or (player.x >= right - epsilon and move_x > 0)
+            or (player.y <= top + epsilon and move_y < 0)
+            or (player.y >= bottom - epsilon and move_y > 0)
+        )
+
+    @staticmethod
+    def action_mask_from_observation(observation):
+        """Return valid actions; firing is unavailable while on cooldown."""
+        mask = np.ones(RL_ACTION_COUNT, dtype=np.bool_)
+        if float(observation[6]) > 1e-6:
+            mask[RL_MOVEMENT_ACTIONS:] = False
+        return mask
 
     def render(self):
         self.game.render(self._screen)

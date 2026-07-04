@@ -211,15 +211,32 @@ _ACTION_TO_MOVE = [
     (_DIAG, -_DIAG), # 6 up-right
     (-_DIAG, _DIAG), # 7 down-left
     (_DIAG, _DIAG),  # 8 down-right
-    (0, 0)           # 9 ability - get_action will be fired
 ]
+
+# RL actions are deliberately kept as one flat discrete space so PPO, DQN,
+# and their variants can be compared with exactly the same controls:
+#   0..8   movement only
+#   9..17  the same movement directions while using the ability
+# Action 9 therefore remains the familiar "stand still and fire" action.
+RL_MOVEMENT_ACTIONS = len(_ACTION_TO_MOVE)
+RL_ACTION_COUNT = RL_MOVEMENT_ACTIONS * 2
+
+
+def decode_rl_action(action):
+    """Return ``(movement_x, movement_y, fire)`` for a discrete RL action."""
+    action = int(action)
+    if action < 0 or action >= RL_ACTION_COUNT:
+        raise ValueError(f"RL action must be in [0, {RL_ACTION_COUNT - 1}], got {action}")
+    movement = _ACTION_TO_MOVE[action % RL_MOVEMENT_ACTIONS]
+    return movement[0], movement[1], action >= RL_MOVEMENT_ACTIONS
 
 class RLController:
     def __init__(self):
         self.current_action = 0
 
     def get_movement(self, keys, player, opponent):
-        return _ACTION_TO_MOVE[self.current_action]
+        dx, dy, _ = decode_rl_action(self.current_action)
+        return dx, dy
 
     def get_action(self, keys, player, opponent):
-        return self.current_action == 9
+        return decode_rl_action(self.current_action)[2]
