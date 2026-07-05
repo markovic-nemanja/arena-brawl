@@ -1,4 +1,4 @@
-"""AIM TRAINING (A2C, single-env) — no parallelization, mirrors train_aim_ppo.py.
+"""AIM TRAINING (A2C, single-env) — mirrors train_aim_ppo.py.
 
 Same isolated aiming task: a StationaryBot respawns at a new random spot on each hit, reward is
 damage-dealt only, so the agent must read the target's position and aim. This is the single-environment
@@ -6,7 +6,6 @@ A2C counterpart to train_aim_ppo.py — identical env / rollout / step budget, o
 differs (A2C = one policy-gradient step per rollout, no PPO clipping or multi-epoch reuse). That makes it
 a clean apples-to-apples comparison with PPO.
 
-Run:  python -m ai.train_aim_a2c
 """
 import os
 import csv
