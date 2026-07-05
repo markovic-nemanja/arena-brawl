@@ -14,15 +14,17 @@ from systems.controller import AimShooterBot
 from ai.ppo_agent import PPOAgent
 from ai.dqn_agent import DQNAgent
 from ai.dueling_dqn_agent import DuelingDQNAgent
+from ai.a2c_agent import A2CAgent
 
-ROLE = Dasher # Gunner / Bomber / Dasher / ToxicTrail / Blackhole
-ALGORITHM = "ppo" # "ppo" / "dqn" / "dueling"
+ROLE = Gunner # Gunner / Bomber / Dasher / ToxicTrail / Blackhole
+ALGORITHM = "dueling" # "ppo" / "dqn" / "dueling"
 
 # each algorithm -> how to build a fresh agent (Dueling still defaults to state_size=20, so force 22)
 AGENTS = {
     "ppo": lambda: PPOAgent(),
     "dqn": lambda: DQNAgent(),
     "dueling": lambda: DuelingDQNAgent(state_size=22),
+    "a2c": lambda: A2CAgent(),
 }
 
 weights = f"ai/weights/{ALGORITHM}_{ROLE.__name__.lower()}_dodge.pth"
