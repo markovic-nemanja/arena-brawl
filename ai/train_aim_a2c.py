@@ -194,6 +194,6 @@ if __name__ == "__main__":
         print(f"\n######## A2C aim training: {role.__name__} ########")
         train_aim_a2c(
             agent_role=role,
-            total_steps=1_000_000,
+            total_steps=5_000_000,
             log_path=f"ai/logs/a2c_{role.__name__.lower()}_aim.csv",
         )
