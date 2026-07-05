@@ -8,7 +8,7 @@ from ai.A2CNetwork import A2CNetwork
 
 class A2CAgent:
     def __init__(self, state_size=22, action_size=10, lr=7e-4, gamma=0.99,
-                 gae_lambda=0.95, entropy_coef=0.01, value_coef=0.5,
+                 gae_lambda=0.95, entropy_coef=0.02, value_coef=0.5,
                  max_grad_norm=0.5):
 
         self.gamma = gamma

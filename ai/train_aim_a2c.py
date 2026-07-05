@@ -5,11 +5,11 @@ rewarded ONLY for damage dealt (no dodging, no winning, no nudges). Because the 
 a fixed-direction policy scores nothing — the agent is forced to read the target's position and aim
 at it. Parallel arenas collect one rollout together before each A2C update.
 
-Run:  python -m ai.train_aim_a2c
 """
 import os
 import csv
 import time
+from collections import deque
 from functools import partial
 
 import numpy as np
@@ -108,11 +108,13 @@ def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=2048,
 
     log_file = open(log_path, "w", newline="")
     writer = csv.writer(log_file)
-    writer.writerow(["update", "steps", "avg_hit_reward", "entropy", "policy_loss", "value_loss", "episodes"])
+    writer.writerow(["update", "steps", "avg_return_100", "step_reward", "entropy",
+                     "policy_loss", "value_loss", "episodes"])
 
     states, _ = envs.reset()
     episode_rewards = np.zeros(num_envs, dtype=np.float32)
-    completed = []
+    recent_returns = deque(maxlen=100)
+    episodes_completed = 0
     steps_done = 0
     update_num = 0
     start_time = last_print = time.time()
@@ -122,6 +124,8 @@ def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=2048,
     try:
         while steps_done < total_steps:
             rollout_steps = max(1, rollout_size // num_envs)
+            rollout_reward = 0.0
+            rollout_transitions = 0
 
             for _ in range(rollout_steps):
                 actions, log_probs, values = agent.select_actions(states)
@@ -130,11 +134,14 @@ def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=2048,
 
                 buffer.store(states, actions, rewards, dones, log_probs, values)
                 episode_rewards += rewards
+                rollout_reward += float(rewards.sum())
+                rollout_transitions += num_envs
                 states = next_states
                 steps_done += num_envs
 
                 for index in np.flatnonzero(dones):
-                    completed.append(float(episode_rewards[index]))
+                    recent_returns.append(float(episode_rewards[index]))
+                    episodes_completed += 1
                     episode_rewards[index] = 0.0
 
                 if steps_done >= total_steps:
@@ -145,29 +152,32 @@ def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=2048,
             buffer.clear()
             update_num += 1
 
-            avg = sum(completed) / len(completed) if completed else 0
-            writer.writerow([update_num, steps_done, round(avg, 3), round(entropy, 4),
-                             round(policy_loss, 4), round(value_loss, 4), len(completed)])
+            avg_return = float(np.mean(recent_returns)) if recent_returns else 0.0
+            step_reward = rollout_reward / rollout_transitions
+            writer.writerow([update_num, steps_done, round(avg_return, 3), round(step_reward, 6),
+                             round(entropy, 4), round(policy_loss, 4), round(value_loss, 4),
+                             episodes_completed])
             log_file.flush()
 
             elapsed_seconds = max(time.time() - start_time, 1e-6)
             run.log({
                 "update": update_num,
                 "steps": steps_done,
-                "avg_hit_reward": avg,
+                "avg_return_100": avg_return,
+                "step_reward": step_reward,
                 "entropy": entropy,
                 "policy_loss": policy_loss,
                 "value_loss": value_loss,
-                "episodes": len(completed),
+                "episodes": episodes_completed,
                 "steps_per_second": steps_done / elapsed_seconds,
             })
 
             if time.time() - last_print >= 30:
                 elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
                 print(f"[{elapsed}] {agent_role.__name__} | update {update_num} | steps {steps_done} "
-                      f"| avg_hit_reward {avg:.2f} | entropy {entropy:.3f} | episodes {len(completed)}")
+                      f"| avg_return_100 {avg_return:.2f} | step_reward {step_reward:.5f} "
+                      f"| entropy {entropy:.3f} | episodes {episodes_completed}")
                 last_print = time.time()
-            completed = []
 
         agent.save(os.path.join(save_dir, f"a2c_{agent_role.__name__.lower()}_aim.pth"))
     finally:
