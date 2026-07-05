@@ -16,8 +16,8 @@ from ai.dqn_agent import DQNAgent
 from ai.dueling_dqn_agent import DuelingDQNAgent
 from ai.a2c_agent import A2CAgent
 
-ROLE = ToxicTrail   # Gunner / Bomber / Dasher / ToxicTrail / Blackhole
-ALGORITHM = "dueling"       # "ppo" / "dqn" / "dueling"
+ROLE = Gunner   # Gunner / Bomber / Dasher / ToxicTrail / Blackhole
+ALGORITHM = "a2c"       # "ppo" / "dqn" / "dueling"
 
 AGENTS = {
     "ppo": lambda: PPOAgent(),

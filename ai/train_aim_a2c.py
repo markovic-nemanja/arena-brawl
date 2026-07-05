@@ -13,6 +13,7 @@ import time
 from functools import partial
 
 import numpy as np
+import wandb
 from gymnasium.vector import AsyncVectorEnv, AutoresetMode
 
 from arena_env import ArenaBrawlEnv
@@ -67,8 +68,9 @@ def create_aim_env(agent_role):
                          opponent_bot=StationaryBot, aim_practice=True)
 
 
-def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=2048,
-                  num_envs=16, save_dir="ai/weights", log_path="ai/logs/a2c_aim.csv"):
+def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=320,
+                  num_envs=16, save_dir="ai/weights", log_path="ai/logs/a2c_aim.csv",
+                  wandb_project="arena-brawl-a2c-aim", wandb_mode="online"):
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
@@ -78,6 +80,26 @@ def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=2048,
     )
     agent = A2CAgent()
     buffer = ParallelRolloutBuffer(num_envs)
+
+    run = wandb.init(
+        project=wandb_project,
+        name=f"a2c-aim-{agent_role.__name__.lower()}-{num_envs}envs",
+        group="a2c-aim",
+        mode=wandb_mode,
+        config={
+            "algorithm": "a2c",
+            "role": agent_role.__name__,
+            "opponent": StationaryBot.__name__,
+            "total_steps": total_steps,
+            "rollout_size": rollout_size,
+            "num_envs": num_envs,
+            "gamma": agent.gamma,
+            "gae_lambda": agent.gae_lambda,
+            "entropy_coef": agent.entropy_coef,
+            "value_coef": agent.value_coef,
+        },
+        reinit="finish_previous",
+    )
 
     log_file = open(log_path, "w", newline="")
     writer = csv.writer(log_file)
@@ -123,6 +145,18 @@ def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=2048,
                              round(policy_loss, 4), round(value_loss, 4), len(completed)])
             log_file.flush()
 
+            elapsed_seconds = max(time.time() - start_time, 1e-6)
+            run.log({
+                "update": update_num,
+                "steps": steps_done,
+                "avg_hit_reward": avg,
+                "entropy": entropy,
+                "policy_loss": policy_loss,
+                "value_loss": value_loss,
+                "episodes": len(completed),
+                "steps_per_second": steps_done / elapsed_seconds,
+            })
+
             if time.time() - last_print >= 30:
                 elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
                 print(f"[{elapsed}] {agent_role.__name__} | update {update_num} | steps {steps_done} "
@@ -134,6 +168,7 @@ def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=2048,
     finally:
         log_file.close()
         envs.close()
+        run.finish()
 
     elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
     print(f"[{elapsed}] AIM-A2C {agent_role.__name__} DONE ({steps_done} steps).")
