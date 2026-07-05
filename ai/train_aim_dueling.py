@@ -1,4 +1,6 @@
 import os, csv, time
+import wandb
+
 from arena_env import ArenaBrawlEnv
 from systems.roles import *
 from systems.controller import StationaryBot
@@ -9,7 +11,7 @@ from ai.dueling_dqn_agent import DuelingDQNAgent
 def train_aim_dueling(agent_role=Gunner, total_steps=1_000_000, opponent_bot=StationaryBot,
                       base_weights=None, buffer_capacity=100000, batch_size=64,
                       save_dir="ai/weights", log_path="ai/logs/dueling_aim.csv", save_suffix="aim",
-                      checkpoint_every=100_000):
+                      checkpoint_every=100_000, wandb_project="arena-brawl-dueling-aim"):
     os.makedirs(save_dir, exist_ok=True)
     log_dir = os.path.dirname(log_path)
     if log_dir:
@@ -24,6 +26,24 @@ def train_aim_dueling(agent_role=Gunner, total_steps=1_000_000, opponent_bot=Sta
         agent.load(base_weights)
         print(f"[transfer] loaded {base_weights}")
     buffer = ReplayBuffer(capacity=buffer_capacity)
+
+    wandb.init(
+        project=wandb_project,
+        name=f"dueling-aim-{agent_role.__name__.lower()}",
+        group="dueling-aim-all-roles",
+        config={
+            "algorithm": "dueling_dqn",
+            "role": agent_role.__name__,
+            "opponent": opponent_bot.__name__,
+            "total_steps": total_steps,
+            "buffer_capacity": buffer_capacity,
+            "batch_size": batch_size,
+            "gamma": agent.gamma,
+            "epsilon_decay": agent.epsilon_decay,
+            "checkpoint_every": checkpoint_every,
+        },
+        reinit=True,
+    )
 
     log_file = open(log_path, "w", newline="")
     writer = csv.writer(log_file)
@@ -70,6 +90,13 @@ def train_aim_dueling(agent_role=Gunner, total_steps=1_000_000, opponent_bot=Sta
         avg_loss = total_loss / loss_count if loss_count > 0 else 0
         writer.writerow([episode, steps_done, round(ep_reward, 3), round(agent.epsilon, 4), round(avg_loss, 5)])
         log_file.flush()
+        wandb.log({
+            "episode": episode,
+            "steps": steps_done,
+            "hit_reward": ep_reward,
+            "epsilon": agent.epsilon,
+            "loss": avg_loss,
+        })
 
         if time.time() - last_print >= 30:
             elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
@@ -80,6 +107,7 @@ def train_aim_dueling(agent_role=Gunner, total_steps=1_000_000, opponent_bot=Sta
     agent.save(os.path.join(save_dir, f"dueling_{agent_role.__name__.lower()}_{save_suffix}.pth"))
     log_file.close()
     env.close()
+    wandb.finish()
     elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
     print(f"[{elapsed}] AIM-DUELING {agent_role.__name__} DONE ({steps_done} steps).")
 
@@ -87,5 +115,9 @@ def train_aim_dueling(agent_role=Gunner, total_steps=1_000_000, opponent_bot=Sta
 if __name__ == "__main__":
     for role in [Gunner, Bomber, Dasher, ToxicTrail, Blackhole]:
         print(f"\n######## Dueling aim: {role.__name__} ########")
-        train_aim_dueling(agent_role=role, total_steps=1_000_000,
-                          log_path=f"ai/logs/dueling_{role.__name__.lower()}_aim.csv")
+        try:
+            train_aim_dueling(agent_role=role, total_steps=1_000_000,
+                              log_path=f"ai/logs/dueling_{role.__name__.lower()}_aim.csv")
+        except Exception as exc:
+            wandb.finish(exit_code=1)
+            print(f"!!! {role.__name__} FAILED: {exc} !!!")
