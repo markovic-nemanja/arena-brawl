@@ -17,9 +17,12 @@ import wandb
 from gymnasium.vector import AsyncVectorEnv, AutoresetMode
 
 from arena_env import ArenaBrawlEnv
-from systems.roles import Gunner
+from systems.roles import Blackhole, Bomber, Dasher, Gunner, ToxicTrail
 from systems.controller import StationaryBot
 from ai.a2c_agent import A2CAgent
+
+
+ALL_ROLES = [Gunner, Bomber, Dasher, ToxicTrail, Blackhole]
 
 
 class ParallelRolloutBuffer:
@@ -175,4 +178,10 @@ def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=320,
 
 
 if __name__ == "__main__":
-    train_aim_a2c(agent_role=Gunner, total_steps=1_000_000)
+    for role in ALL_ROLES:
+        print(f"\n######## A2C aim training: {role.__name__} ########")
+        train_aim_a2c(
+            agent_role=role,
+            total_steps=1_000_000,
+            log_path=f"ai/logs/a2c_{role.__name__.lower()}_aim.csv",
+        )
