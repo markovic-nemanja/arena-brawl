@@ -1,5 +1,6 @@
 import random
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -50,6 +51,34 @@ class DuelingDQNAgent:
             q_values = self.online_network(state_tensor)
 
         return q_values.argmax(dim=1).item()
+
+    def select_actions(self, states):
+        """Select epsilon-greedy actions for a batch of environment states."""
+        states = np.asarray(states, dtype=np.float32)
+        state_tensor = torch.as_tensor(
+            states,
+            dtype=torch.float32,
+            device=self.device,
+        )
+
+        with torch.no_grad():
+            actions = (
+                self.online_network(state_tensor)
+                .argmax(dim=1)
+                .cpu()
+                .numpy()
+            )
+
+        random_mask = np.random.random(len(states)) < self.epsilon
+        random_count = int(random_mask.sum())
+        if random_count:
+            actions[random_mask] = np.random.randint(
+                0,
+                self.action_size,
+                size=random_count,
+            )
+
+        return actions
 
     def act(self, state):
         """Select a greedy action during evaluation or play."""

@@ -8,6 +8,23 @@ class ReplayBuffer:
         
     def store(self, state, action, reward, next_state, done):
         self.buffer.append((state, action, reward, next_state, done))
+
+    def store_batch(self, states, actions, rewards, next_states, dones):
+        """Store a batch collected from parallel environments."""
+        for state, action, reward, next_state, done in zip(
+            states,
+            actions,
+            rewards,
+            next_states,
+            dones,
+        ):
+            self.store(
+                np.asarray(state, dtype=np.float32).copy(),
+                int(action),
+                float(reward),
+                np.asarray(next_state, dtype=np.float32).copy(),
+                float(done),
+            )
         
     def sample(self, batch_size):
         batch = random.sample(self.buffer, batch_size)
