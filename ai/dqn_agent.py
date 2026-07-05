@@ -41,7 +41,7 @@ class DQNAgent:
         self.target_network.eval()
 
         self.optimizer = optim.Adam(self.online_network.parameters(), lr=learning_rate)
-        self.loss_fn = nn.MSELoss() # Difference between network prediciton and Bellman target
+        self.loss_fn = nn.HuberLoss() # Difference between network prediciton and Bellman target
 
     def select_action(self, state):
         """Training: epsilon-greedy (explore with prob epsilon, else argmax Q)."""

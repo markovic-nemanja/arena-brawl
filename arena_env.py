@@ -47,8 +47,10 @@ class ArenaBrawlEnv(gym.Env):
     _MAX_DISTANCE = math.hypot(_ARENA_WIDTH, _ARENA_HEIGHT)
     
     def __init__(self, agent_role=None, opponent_role=None, render_mode=None, max_steps=5400,
-                 opponent_agent=None, opponent_bot=EasyBot):
+                 opponent_agent=None, opponent_bot=EasyBot, aim_practice=False, dodge_practice=False):
         super().__init__()
+        self.aim_practice = aim_practice   # target-practice mode: respawn a stationary target on hit, hit-only reward
+        self.dodge_practice = dodge_practice  # survival mode: penalize damage TAKEN only (dodge projectiles + walls)
         self.render_mode = render_mode
         self.max_steps = max_steps
         self.frame_skip = 4
@@ -126,11 +128,39 @@ class ArenaBrawlEnv(gym.Env):
 
         winner = self.game.step(keys=None, dt=1/S.FPS)
 
+        damage_dealt = prev_opponent_hp - self.opponent.hp
+        damage_taken = prev_hp - self.agent.hp
+
+        if self.aim_practice:
+            # AIM TRAINING: hit-only reward; the target respawns at a NEW RANDOM spot when killed, so the
+            # agent must read its position and re-aim each time (this forces state-dependent aiming — a
+            # fixed-direction policy can't score). The agent is immortal; only its hits matter.
+            reward = _R_DAMAGE_DEALT * damage_dealt
+            if self.opponent.hp <= 0:
+                self._respawn_target()
+            self.agent.hp = S.PLAYER_MAX_HP
+            truncated = self.current_step >= self.max_steps
+            if self.render_mode == "human":
+                self.render()
+            return reward, False, truncated, 0.0
+
+        if self.dodge_practice:
+            # DODGE TRAINING: penalize damage TAKEN only (projectile hits AND wall contact, since wall
+            # damage is just hp loss). Both fighters are immortal, so the drill runs the full episode and
+            # the agent gets a dense per-frame dodge signal instead of dying early. A moving aimed shooter
+            # keeps hazards coming, so the agent must read hazard pos/vel (already in the obs) and move to
+            # make them miss. Offense is irrelevant here — no reward for dealing damage.
+            reward = -_R_DAMAGE_TAKEN * damage_taken
+            self.agent.hp = S.PLAYER_MAX_HP
+            self.opponent.hp = S.PLAYER_MAX_HP   # keep the shooter alive so it never stops firing
+            truncated = self.current_step >= self.max_steps
+            if self.render_mode == "human":
+                self.render()
+            return reward, False, truncated, damage_taken
+
         terminated = winner is not None
         truncated = self.current_step >= self.max_steps
 
-        damage_dealt = prev_opponent_hp - self.opponent.hp
-        damage_taken = prev_hp - self.agent.hp
         reward = _R_DAMAGE_DEALT * damage_dealt - _R_DAMAGE_TAKEN * damage_taken
 
         if terminated:
@@ -142,6 +172,20 @@ class ArenaBrawlEnv(gym.Env):
             self.render()
 
         return reward, terminated, truncated, damage_taken
+
+    def _respawn_target(self):
+        """Teleport the (stationary) target to a fresh random spot and heal it — used in aim_practice."""
+        while True:
+            ox = random.randint(S.ARENA_LEFT + S.PLAYER_RADIUS, S.ARENA_RIGHT - S.PLAYER_RADIUS)
+            oy = random.randint(S.ARENA_TOP + S.PLAYER_RADIUS, S.ARENA_BOTTOM - S.PLAYER_RADIUS)
+            if math.hypot(ox - self.agent.x, oy - self.agent.y) > 200:
+                break
+        self.opponent.x = ox
+        self.opponent.y = oy
+        self.opponent.hp = S.PLAYER_MAX_HP
+        self.opponent.projectiles = []
+        self.opponent.cooldown = 0
+        self.opponent.stun_timer = 0
 
     # frame skip - one agent decision = 4 game frames. Per-frame outcome rewards are summed,
     # then the per-decision behaviour nudges are added once.
@@ -165,7 +209,7 @@ class ArenaBrawlEnv(gym.Env):
             if terminated or truncated:
                 break
 
-        if not terminated and not truncated:
+        if not terminated and not truncated and not self.aim_practice and not self.dodge_practice:
             total_reward += self._behaviour_rewards(int(action), cd_before, damage_taken_dec)
 
         return self._get_obs(self.agent, self.opponent), total_reward, terminated, truncated, {}
