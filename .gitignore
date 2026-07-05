@@ -206,9 +206,3 @@ wandb/
 
 # OS files
 Thumbs.db
-
-# Project specification
-*.pdf
-
-# MD irrelevant files
-IMPLEMENTATION.md
