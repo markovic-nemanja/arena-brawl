@@ -27,7 +27,6 @@ def train_dodge_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=256,
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
-    # Keep the task identical to the PPO, DQN, and Dueling DQN dodge trainers.
     env = ArenaBrawlEnv(
         agent_role=agent_role(),
         opponent_role=Gunner(),
