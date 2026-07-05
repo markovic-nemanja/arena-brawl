@@ -32,19 +32,21 @@ from systems.controller import StationaryBot, RandomBot, _ACTION_TO_MOVE
 from ai.ppo_agent import PPOAgent
 from ai.dqn_agent import DQNAgent
 from ai.dueling_dqn_agent import DuelingDQNAgent
+from ai.a2c_agent import A2CAgent
 import settings as S
 
 # ---- config ----
-STAGE = "aim" # "aim" = stationary target (StationaryBot); "aim_move" = moving target (RandomBot)
+STAGE = "aim_move" # "aim" = stationary target (StationaryBot); "aim_move" = moving target (RandomBot)
 N_EPISODES = 15 # greedy episodes averaged per (algo, role); more = less noise, slower
 ROLES = [Gunner, Bomber, Dasher, ToxicTrail, Blackhole]
-ALGOS = ["ppo", "dqn", "dueling"]
+ALGOS = ["ppo", "dqn", "dueling", "a2c"]
 
 # each algo -> build a fresh agent (Dueling still defaults to state_size=20, so force 22)
 AGENTS = {
-    "ppo":     lambda: PPOAgent(),
-    "dqn":     lambda: DQNAgent(),
+    "ppo": lambda: PPOAgent(),
+    "dqn": lambda: DQNAgent(),
     "dueling": lambda: DuelingDQNAgent(state_size=22),
+    "a2c": lambda: A2CAgent(state_size=22),
 }
 OPP_BOT = StationaryBot if STAGE == "aim" else RandomBot
 _R_DAMAGE_DEALT = 0.3   # must match arena_env; kills = reward / this / PLAYER_MAX_HP
@@ -63,7 +65,7 @@ def eval_one(algo, role):
 
     tot_reward = tot_shots = tot_moves = tot_aimed = tot_decisions = 0.0
     for ep in range(N_EPISODES):
-        random.seed(ep); np.random.seed(ep)        # same target stream for every algo -> fair, reproducible
+        random.seed(ep); np.random.seed(ep) # same target stream for every algo -> fair, reproducible
         state, _ = env.reset(seed=ep)
         done = False
         while not done:
@@ -73,14 +75,14 @@ def eval_one(algo, role):
             dy = env.opponent.y - env.agent.y
             dist = math.hypot(dx, dy)
 
-            action = agent.act(state)              # GREEDY
+            action = agent.act(state) # GREEDY
             tot_decisions += 1
             if action == 9 and cd_ready:
                 tot_shots += 1
             elif 1 <= action <= 8:
                 tot_moves += 1
                 mvx, mvy = _ACTION_TO_MOVE[action]
-                if dist > 0 and (mvx * dx + mvy * dy) / dist > 0:   # heading toward the target
+                if dist > 0 and (mvx * dx + mvy * dy) / dist > 0: # heading toward the target
                     tot_aimed += 1
 
             state, reward, terminated, truncated, _ = env.step(action)
@@ -92,7 +94,7 @@ def eval_one(algo, role):
     return {
         "kills_ep":  kills / N_EPISODES,
         "shots_ep":  tot_shots / N_EPISODES,
-        "accuracy":  kills / tot_shots if tot_shots else 0.0,   # kills per effective shot
+        "accuracy":  kills / tot_shots if tot_shots else 0.0, # kills per effective shot
         "aim_pct":   tot_aimed / tot_moves if tot_moves else 0.0,
         "fire_pct":  tot_shots / tot_decisions if tot_decisions else 0.0,
         "reward_ep": tot_reward / N_EPISODES,

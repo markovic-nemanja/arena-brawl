@@ -27,18 +27,20 @@ from systems.controller import AimShooterBot
 from ai.ppo_agent import PPOAgent
 from ai.dqn_agent import DQNAgent
 from ai.dueling_dqn_agent import DuelingDQNAgent
+from ai.a2c_agent import A2CAgent
 import settings as S
 
 # ---- config ----
 N_EPISODES = 15        # greedy episodes averaged per (algo, role); more = less noise, slower
 ROLES = [Gunner, Bomber, Dasher, ToxicTrail, Blackhole]
-ALGOS = ["ppo", "dqn"]   # focus on PPO vs DQN for now (Dueling/A2C are the friend's)
+ALGOS = ["ppo", "dqn", "dueling", "a2c"]
 
 # each algo -> build a fresh agent (Dueling still defaults to state_size=20, so force 22)
 AGENTS = {
     "ppo":     lambda: PPOAgent(),
     "dqn":     lambda: DQNAgent(),
     "dueling": lambda: DuelingDQNAgent(state_size=22),
+    "a2c":     lambda: A2CAgent(state_size=22),
 }
 _R_DAMAGE_TAKEN = 0.1   # must match arena_env; damage = -reward / this
 _WALL_MARGIN = 70       # px from a wall counted as "hugging the wall"

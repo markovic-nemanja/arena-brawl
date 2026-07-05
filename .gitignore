@@ -201,6 +201,10 @@ ai/weights/
 # Generated training logs
 ai/logs/
 
+# Generated training plots
+ai/plots/
+ai/plot_comparison.py
+
 # Wandb local run data (can be gigabytes)
 wandb/
 
@@ -212,3 +216,4 @@ Thumbs.db
 
 # MD irrelevant files
 IMPLEMENTATION.md
+PREZENTACIJA.md
