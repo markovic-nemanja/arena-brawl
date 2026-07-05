@@ -7,7 +7,6 @@ EXPLOIT the seed and explore only a little for the new moving dynamics.
 
 Mirrors train_aim_move_dqn.py (same schedule) so the DQN vs Dueling moving comparison is fair.
 
-Run:  python -m ai.train_aim_move_dueling   (train ai.train_aim_dueling first — it produces the seed this loads)
 """
 import os
 import csv
@@ -28,11 +27,10 @@ def train_aim_move_dueling(agent_role=Gunner, total_steps=1_000_000, eps_start=0
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
-    # MOVING target: a RandomBot drifts around the arena, and respawns at a new spot on each hit
+    # MOVING target
     env = ArenaBrawlEnv(agent_role=agent_role(), opponent_role=agent_role(),
                         opponent_bot=RandomBot, aim_practice=True)
 
-    # low epsilon start: exploit the seed, don't erase it (22-vec obs, so force state_size=22)
     agent = DuelingDQNAgent(state_size=22, batch_size=batch_size, epsilon_start=eps_start)
     seed = os.path.join(save_dir, f"dueling_{agent_role.__name__.lower()}_aim.pth")   # TRANSFER from the stationary seed
     agent.load(seed)

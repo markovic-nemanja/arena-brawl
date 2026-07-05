@@ -34,8 +34,8 @@ def train_dodge_dueling(agent_role=Gunner, total_steps=1_000_000, base_weights=N
     # stationary turret) means the agent can't escape by running out of range — it has to dodge.
     env = ArenaBrawlEnv(agent_role=agent_role(), opponent_role=Gunner(),
                         opponent_bot=lambda: AimShooterBot(0.7), dodge_practice=True)
-    agent = DuelingDQNAgent(state_size=22, batch_size=batch_size)   # 22-vec obs (friend's default may still be 20)
-    if base_weights:                       # transfer: start from an earlier seed instead of scratch
+    agent = DuelingDQNAgent(state_size=22, batch_size=batch_size) 
+    if base_weights:                    
         agent.load(base_weights)
         print(f"[transfer] loaded {base_weights}")
     buffer = ReplayBuffer(capacity=buffer_capacity)

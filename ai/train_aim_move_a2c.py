@@ -5,7 +5,6 @@ seed (a2c_<role>_aim.pth) and fine-tunes — transfer learning — so it refines
 "aim at a moving target". A2C is on-policy and explores through policy entropy (no epsilon), so transfer
 is simply: load the seed weights and keep training against the harder, moving opponent.
 
-Run:  python -m ai.train_aim_move_a2c   (train ai.train_aim_a2c first — it produces the seed this loads)
 """
 import os
 import csv
