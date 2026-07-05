@@ -71,7 +71,7 @@ def create_aim_env(agent_role):
                          opponent_bot=StationaryBot, aim_practice=True)
 
 
-def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=320,
+def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=2048,
                   num_envs=16, save_dir="ai/weights", log_path="ai/logs/a2c_aim.csv",
                   wandb_project="arena-brawl-a2c-aim", wandb_mode="online"):
     os.makedirs(save_dir, exist_ok=True)
@@ -100,6 +100,8 @@ def train_aim_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=320,
             "gae_lambda": agent.gae_lambda,
             "entropy_coef": agent.entropy_coef,
             "value_coef": agent.value_coef,
+            "learning_rate": agent.optimizer.param_groups[0]["lr"],
+            "max_grad_norm": agent.max_grad_norm,
         },
         reinit="finish_previous",
     )

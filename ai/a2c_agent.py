@@ -3,21 +3,23 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
 import numpy as np
-from ai.ppo_network import ActorCritic
+from ai.A2CNetwork import A2CNetwork
 
 
 class A2CAgent:
-    def __init__(self, state_size=22, action_size=10, lr=3e-4, gamma=0.99,
-                 gae_lambda=0.95, entropy_coef=0.01, value_coef=0.5):
+    def __init__(self, state_size=22, action_size=10, lr=7e-4, gamma=0.99,
+                 gae_lambda=0.95, entropy_coef=0.01, value_coef=0.5,
+                 max_grad_norm=0.5):
 
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         self.entropy_coef = entropy_coef
         self.value_coef = value_coef
+        self.max_grad_norm = max_grad_norm
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.network = ActorCritic(state_size, action_size).to(self.device)
+        self.network = A2CNetwork(state_size, action_size).to(self.device)
         self.optimizer = optim.Adam(self.network.parameters(), lr=lr)
 
     def select_action(self, state):
@@ -81,6 +83,7 @@ class A2CAgent:
 
         self.optimizer.zero_grad()
         loss.backward()
+        nn.utils.clip_grad_norm_(self.network.parameters(), self.max_grad_norm)
         self.optimizer.step()
 
         return policy_loss.item(), value_loss.item(), entropy.item()
