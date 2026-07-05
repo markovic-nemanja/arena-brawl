@@ -4,9 +4,10 @@ from systems.roles import *
 from ai.ppo_agent import PPOAgent
 from ai.dqn_agent import DQNAgent
 from ai.dueling_dqn_agent import DuelingDQNAgent
+from ai.a2c_agent import A2CAgent
 
 # --- choose what to watch ---
-ROLE = Blackhole # role to play against
+ROLE = Gunner # role to play against
 ALGORITHM = "ppo" # "ppo" or "dqn"
 STAGE = "final" # weight-file suffix (e.g. "final", "league")
 WEIGHTS = f"ai/weights/{ALGORITHM}_{ROLE.__name__.lower()}_{STAGE}.pth"

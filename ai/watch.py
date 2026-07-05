@@ -14,14 +14,16 @@ from systems.controller import StationaryBot
 from ai.ppo_agent import PPOAgent
 from ai.dqn_agent import DQNAgent
 from ai.dueling_dqn_agent import DuelingDQNAgent
+from ai.a2c_agent import A2CAgent
 
-ROLE = Blackhole   # Gunner / Bomber / Dasher / ToxicTrail / Blackhole
-ALGORITHM = "dqn"       # "ppo" / "dqn" / "dueling"
+ROLE = ToxicTrail   # Gunner / Bomber / Dasher / ToxicTrail / Blackhole
+ALGORITHM = "dueling"       # "ppo" / "dqn" / "dueling"
 
 AGENTS = {
     "ppo": lambda: PPOAgent(),
     "dqn": lambda: DQNAgent(),
-    "dueling": lambda: DuelingDQNAgent(state_size=22),
+    "dueling": lambda: DuelingDQNAgent(),
+    "a2c": lambda: A2CAgent(),
 }
 
 weights = f"ai/weights/{ALGORITHM}_{ROLE.__name__.lower()}_aim.pth"
