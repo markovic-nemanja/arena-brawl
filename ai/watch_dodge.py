@@ -15,7 +15,7 @@ from ai.ppo_agent import PPOAgent
 from ai.dqn_agent import DQNAgent
 from ai.dueling_dqn_agent import DuelingDQNAgent
 
-ROLE = Gunner # Gunner / Bomber / Dasher / ToxicTrail / Blackhole
+ROLE = Dasher # Gunner / Bomber / Dasher / ToxicTrail / Blackhole
 ALGORITHM = "ppo" # "ppo" / "dqn" / "dueling"
 
 # each algorithm -> how to build a fresh agent (Dueling still defaults to state_size=20, so force 22)

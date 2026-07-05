@@ -32,7 +32,7 @@ import settings as S
 # ---- config ----
 N_EPISODES = 15        # greedy episodes averaged per (algo, role); more = less noise, slower
 ROLES = [Gunner, Bomber, Dasher, ToxicTrail, Blackhole]
-ALGOS = ["ppo", "dqn", "dueling"]
+ALGOS = ["ppo", "dqn"]   # focus on PPO vs DQN for now (Dueling/A2C are the friend's)
 
 # each algo -> build a fresh agent (Dueling still defaults to state_size=20, so force 22)
 AGENTS = {
@@ -53,6 +53,12 @@ def _near_wall(x, y):
 def eval_one(algo, role):
     """Run N_EPISODES greedy episodes; return per-episode-averaged metrics (or None if no weights)."""
     weights = f"ai/weights/{algo}_{role.__name__.lower()}_dodge.pth"
+    shared = False
+    if not os.path.exists(weights):
+        # dodging is role-independent movement, so roles without their own dodge policy reuse the
+        # shared Gunner dodge policy (only Dasher trains its own — it can dash to dodge).
+        weights = f"ai/weights/{algo}_gunner_dodge.pth"
+        shared = True
     if not os.path.exists(weights):
         return None
     agent = AGENTS[algo]()
@@ -84,6 +90,7 @@ def eval_one(algo, role):
         "wall_pct":  tot_wall / tot_decisions if tot_decisions else 0.0,
         "move_pct":  tot_moves / tot_decisions if tot_decisions else 0.0,
         "reward_ep": tot_reward / N_EPISODES,
+        "shared":    shared,
     }
 
 
@@ -101,16 +108,18 @@ def main():
             if m is None:
                 print(f"{algo:<8}{role.__name__:<12}{'  (no weights)':>20}")
                 continue
-            print(f"{algo:<8}{role.__name__:<12}{m['dmg_ep']:>9.1f}{m['wall_pct']*100:>7.1f}%"
+            name = role.__name__ + ("*" if m["shared"] else "")
+            print(f"{algo:<8}{name:<12}{m['dmg_ep']:>9.1f}{m['wall_pct']*100:>7.1f}%"
                   f"{m['move_pct']*100:>7.1f}%{m['reward_ep']:>11.1f}")
             rows.append([algo, role.__name__, round(m["dmg_ep"], 2), round(m["wall_pct"], 4),
-                         round(m["move_pct"], 4), round(m["reward_ep"], 2)])
+                         round(m["move_pct"], 4), round(m["reward_ep"], 2), int(m["shared"])])
 
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["algo", "role", "dmg_taken_ep", "wall_pct", "move_pct", "reward_ep"])
+        w.writerow(["algo", "role", "dmg_taken_ep", "wall_pct", "move_pct", "reward_ep", "shared_gunner_policy"])
         w.writerows(rows)
-    print(f"\nwrote {out_path}")
+    print("\n* = evaluated with the shared Gunner dodge policy (role has no own dodge weights)")
+    print(f"wrote {out_path}")
 
 
 if __name__ == "__main__":

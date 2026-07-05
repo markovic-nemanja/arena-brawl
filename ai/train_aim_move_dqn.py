@@ -14,8 +14,11 @@ from systems.controller import RandomBot
 from ai.replay_buffer import ReplayBuffer
 from ai.dqn_agent import DQNAgent
 
+EPS_END = 0.05   # floor: keep 5% exploration even once fully annealed
 
-def train_aim_move_dqn(agent_role=Gunner, total_steps=1_000_000, buffer_capacity=100000, batch_size=64,
+
+def train_aim_move_dqn(agent_role=Gunner, total_steps=1_000_000, eps_start=0.3, eps_anneal_frac=0.6,
+                       buffer_capacity=100000, batch_size=64,
                        save_dir="ai/weights", log_path="ai/logs/dqn_aim_move.csv"):
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
@@ -24,12 +27,18 @@ def train_aim_move_dqn(agent_role=Gunner, total_steps=1_000_000, buffer_capacity
     env = ArenaBrawlEnv(agent_role=agent_role(), opponent_role=agent_role(),
                         opponent_bot=RandomBot, aim_practice=True)
 
-    agent = DQNAgent(batch_size=batch_size, epsilon_start=0.3)   # low start: exploit the seed, don't erase it
+    agent = DQNAgent(batch_size=batch_size, epsilon_start=eps_start)   # low start: exploit the seed, don't erase it
     seed = os.path.join(save_dir, f"dqn_{agent_role.__name__.lower()}_aim.pth") # TRANSFER from the stationary seed
     agent.load(seed)
     print(f"[transfer] loaded stationary seed: {seed}")
 
     buffer = ReplayBuffer(capacity=buffer_capacity)
+
+    # STEP-BASED LINEAR epsilon anneal (matches train_aim_dqn.py): eps_start -> EPS_END over the first
+    # eps_anneal_frac of steps, then hold. Tied to STEPS not episodes — the old per-episode 0.999 decay
+    # only crawled from 0.3 to ~0.14 in 1M steps (never a clean exploitation tail).
+    anneal_steps = max(1, int(total_steps * eps_anneal_frac))
+    agent.epsilon = eps_start
     log_file = open(log_path, "w", newline="")
     writer = csv.writer(log_file)
     writer.writerow(["episode", "steps", "hit_reward", "epsilon", "loss"])
@@ -45,6 +54,7 @@ def train_aim_move_dqn(agent_role=Gunner, total_steps=1_000_000, buffer_capacity
         total_loss = 0.0
         loss_count = 0
         while True:
+            agent.epsilon = max(EPS_END, eps_start - (eps_start - EPS_END) * steps_done / anneal_steps)
             action = agent.select_action(state)
             next_state, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
@@ -59,7 +69,7 @@ def train_aim_move_dqn(agent_role=Gunner, total_steps=1_000_000, buffer_capacity
             if done or steps_done >= total_steps:
                 break
 
-        agent.decay_epsilon()
+        # epsilon is scheduled per-step above (no per-episode decay)
         episode += 1
         avg_loss = total_loss / loss_count if loss_count > 0 else 0
         writer.writerow([episode, steps_done, round(ep_reward, 3), round(agent.epsilon, 4), round(avg_loss, 5)])
