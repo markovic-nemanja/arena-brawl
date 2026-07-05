@@ -17,7 +17,7 @@ from ai.dueling_dqn_agent import DuelingDQNAgent
 from ai.a2c_agent import A2CAgent
 
 ROLE = Gunner # Gunner / Bomber / Dasher / ToxicTrail / Blackhole
-ALGORITHM = "dueling" # "ppo" / "dqn" / "dueling"
+ALGORITHM = "a2c" # "ppo" / "dqn" / "dueling"
 
 # each algorithm -> how to build a fresh agent (Dueling still defaults to state_size=20, so force 22)
 AGENTS = {

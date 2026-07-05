@@ -34,7 +34,7 @@ def train_dodge_a2c(agent_role=Gunner, total_steps=1_000_000, rollout_size=256,
         opponent_bot=lambda: AimShooterBot(0.7),
         dodge_practice=True,
     )
-    agent = A2CAgent()
+    agent = A2CAgent(entropy_coef=0.005)
     buffer = RolloutBuffer()
 
     state, _ = env.reset()
