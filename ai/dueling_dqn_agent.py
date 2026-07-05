@@ -8,7 +8,7 @@ from ai.dueling_dqn_network import DuelingQNetwork
 
 
 class DuelingDQNAgent:
-    def __init__(self, state_size=20, action_size=10,
+    def __init__(self, state_size=22, action_size=10,
                  learning_rate=0.001, gamma=0.99,
                  epsilon_start=1.0, epsilon_end=0.05, epsilon_decay=0.999,
                  target_update_freq=1000, batch_size=64):
@@ -33,7 +33,7 @@ class DuelingDQNAgent:
             self.online_network.parameters(),
             lr=learning_rate,
         )
-        self.loss_fn = nn.MSELoss()
+        self.loss_fn = nn.HuberLoss()
 
     def select_action(self, state):
         """Select an epsilon-greedy action during training."""

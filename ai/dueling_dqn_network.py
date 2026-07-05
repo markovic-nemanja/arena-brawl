@@ -4,7 +4,7 @@ import torch.nn as nn
 class DuelingQNetwork(nn.Module):
     def __init__(
         self,
-        state_size=20,
+        state_size=22,
         action_size=10,
         hidden_size=128,
     ):
@@ -18,16 +18,10 @@ class DuelingQNetwork(nn.Module):
         )
 
         # V(s): procena vrednosti trenutnog stanja
-        self.value_stream = nn.Linear(
-            hidden_size,
-            1,
-        )
+        self.value_stream = nn.Linear(hidden_size,1,)
 
         # A(s,a): prednost svake akcije u trenutnom stanju
-        self.advantage_stream = nn.Linear(
-            hidden_size,
-            action_size,
-        )
+        self.advantage_stream = nn.Linear(hidden_size,action_size,)
 
     def forward(self, state):
         features = self.feature_network(state)
@@ -35,10 +29,6 @@ class DuelingQNetwork(nn.Module):
         value = self.value_stream(features)
         advantage = self.advantage_stream(features)
 
-        q_values = (
-            value
-            + advantage
-            - advantage.mean(dim=-1, keepdim=True)
-        )
+        q_values = (value + advantage - advantage.mean(dim=-1, keepdim=True))
 
         return q_values

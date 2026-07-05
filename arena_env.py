@@ -8,36 +8,35 @@ from entities.player import Player
 from systems.controller import EasyBot, RLController
 from systems.roles import *
 from game import Game
-import random
 from collections import deque
 
 # --- reward system ---
 
-_R_DAMAGE_DEALT = 0.3 # per hp of damage dealt to the opponent
-_R_DAMAGE_TAKEN = 0.1 # per hp of damage taken (subtracted; includes self-inflicted wall damage)
-_R_WIN = 10 # agent won
-_R_LOSE = 10 # agent died
-_R_TRUNCATED = 3 # ran out the time - penalty for not finishing (winning)
+_R_DAMAGE_DEALT = 0.3
+_R_DAMAGE_TAKEN = 0.1
+_R_WIN = 10
+_R_LOSE = 10
+_R_TRUNCATED = 3
 
 # NUDGES
-_R_PROXIMITY = 0.5 # ONE-TIME per hazard: if agent hazard goes within the radius, reward agent - nudges him to discover to damage the opponent
-_PROX_RADIUS = 70 # px
+_R_PROXIMITY = 0.5
+_PROX_RADIUS = 70
 
-_R_DODGE = 0.5 # ONE-TIME per hazard: dodging enemy hazard that goes within the radius, reward agent - nudges him to discover to avoid damage
-_DODGE_RADIUS = 120 # px
-_DODGE_AIM = 0.7 # cos: 45deg - only dodge hazards that are aimed at the agent
+_R_DODGE = 0.5
+_DODGE_RADIUS = 120
+_DODGE_AIM = 0.7
 
-_R_STATIC = 0.005 # penalize standing still for too long (also includes jittering in place)
-_STATIC_WINDOW = 15 # decisions (in 15 decision, he must move to avoid penalty)
-_STATIC_MIN_DISP = 70 # px - how much agent has to move not to take damage
+_R_STATIC = 0.005
+_STATIC_WINDOW = 15
+_STATIC_MIN_DISP = 70
 
-_R_FIRE_MOVE = 0.2 # agent get rewarded for kiting (hit and run)
-_FIRE_MOVE_WINDOW = 4 # decisions (he needs to move in the next 4 decisions to get the reward)
+_R_FIRE_MOVE = 0.2
+_FIRE_MOVE_WINDOW = 4
 
-_R_NO_FIRE = 0.005 # penalty for not taking a shot when able to
-_NO_FIRE_PATIENCE = 30 # decisions - he has rougly 2 seconds to fire before the penalty kicks in
+_R_NO_FIRE = 0.005
+_NO_FIRE_PATIENCE = 30
 
-_AIM_DOT = 0.7      # cos(45deg): "facing the opponent"
+_AIM_DOT = 0.7
 
 class ArenaBrawlEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
@@ -47,8 +46,9 @@ class ArenaBrawlEnv(gym.Env):
     _MAX_DISTANCE = math.hypot(_ARENA_WIDTH, _ARENA_HEIGHT)
     
     def __init__(self, agent_role=None, opponent_role=None, render_mode=None, max_steps=5400,
-                 opponent_agent=None, opponent_bot=EasyBot):
+                 opponent_agent=None, opponent_bot=EasyBot, aim_practice=False):
         super().__init__()
+        self.aim_practice = aim_practice
         self.render_mode = render_mode
         self.max_steps = max_steps
         self.frame_skip = 4
@@ -77,13 +77,25 @@ class ArenaBrawlEnv(gym.Env):
         self._rl_controller.current_action = 0
         self.current_step = 0
         
-        px = random.randint(S.ARENA_LEFT + S.PLAYER_RADIUS, S.ARENA_RIGHT - S.PLAYER_RADIUS)
-        py = random.randint(S.ARENA_TOP + S.PLAYER_RADIUS, S.ARENA_BOTTOM - S.PLAYER_RADIUS)
+        px = self.np_random.integers(
+            S.ARENA_LEFT + S.PLAYER_RADIUS,
+            S.ARENA_RIGHT - S.PLAYER_RADIUS + 1,
+        )
+        py = self.np_random.integers(
+            S.ARENA_TOP + S.PLAYER_RADIUS,
+            S.ARENA_BOTTOM - S.PLAYER_RADIUS + 1,
+        )
         
         while True:
-            ox = random.randint(S.ARENA_LEFT + S.PLAYER_RADIUS, S.ARENA_RIGHT - S.PLAYER_RADIUS)
-            oy = random.randint(S.ARENA_TOP + S.PLAYER_RADIUS, S.ARENA_BOTTOM - S.PLAYER_RADIUS)
-            if math.hypot(ox - px, oy - py) > 200: # don't spawn on top of each other
+            ox = self.np_random.integers(
+                S.ARENA_LEFT + S.PLAYER_RADIUS,
+                S.ARENA_RIGHT - S.PLAYER_RADIUS + 1,
+            )
+            oy = self.np_random.integers(
+                S.ARENA_TOP + S.PLAYER_RADIUS,
+                S.ARENA_BOTTOM - S.PLAYER_RADIUS + 1,
+            )
+            if math.hypot(ox - px, oy - py) > 200:
                 break
             
         self.agent = Player(
@@ -126,11 +138,22 @@ class ArenaBrawlEnv(gym.Env):
 
         winner = self.game.step(keys=None, dt=1/S.FPS)
 
+        damage_dealt = prev_opponent_hp - self.opponent.hp
+        damage_taken = prev_hp - self.agent.hp
+
+        if self.aim_practice:
+            reward = _R_DAMAGE_DEALT * damage_dealt
+            if self.opponent.hp <= 0:
+                self._respawn_target()
+            self.agent.hp = S.PLAYER_MAX_HP
+            truncated = self.current_step >= self.max_steps
+            if self.render_mode == "human":
+                self.render()
+            return reward, False, truncated, 0.0
+
         terminated = winner is not None
         truncated = self.current_step >= self.max_steps
 
-        damage_dealt = prev_opponent_hp - self.opponent.hp
-        damage_taken = prev_hp - self.agent.hp
         reward = _R_DAMAGE_DEALT * damage_dealt - _R_DAMAGE_TAKEN * damage_taken
 
         if terminated:
@@ -143,17 +166,39 @@ class ArenaBrawlEnv(gym.Env):
 
         return reward, terminated, truncated, damage_taken
 
-    # frame skip - one agent decision = 4 game frames. Per-frame outcome rewards are summed,
-    # then the per-decision behaviour nudges are added once.
+    def _respawn_target(self):
+        """Teleport the (stationary) target to a fresh random spot and heal it — used in aim_practice."""
+        while True:
+            ox = self.np_random.integers(
+                S.ARENA_LEFT + S.PLAYER_RADIUS,
+                S.ARENA_RIGHT - S.PLAYER_RADIUS + 1,
+            )
+            oy = self.np_random.integers(
+                S.ARENA_TOP + S.PLAYER_RADIUS,
+                S.ARENA_BOTTOM - S.PLAYER_RADIUS + 1,
+            )
+            if math.hypot(ox - self.agent.x, oy - self.agent.y) > 200:
+                break
+        self.opponent.x = ox
+        self.opponent.y = oy
+        self.opponent.hp = S.PLAYER_MAX_HP
+        self.opponent.projectiles = []
+        self.opponent.cooldown = 0
+        self.opponent.stun_timer = 0
+        # Do not let hazards aimed at the old target damage a freshly spawned one.
+        # This is especially important for trapping blackholes, whose damage phase
+        # remains active after the killing blow.
+        self.agent.projectiles = []
+
     def step(self, action):
         self._rl_controller.current_action = int(action)
         if self.opponent_agent is not None:
             opp_action = self.opponent_agent.select_action(self._get_obs(self.opponent, self.agent))
-            if isinstance(opp_action, tuple): # PPO/A2C return (action, log_prob, value); DQN returns an int
+            if isinstance(opp_action, tuple):
                 opp_action = opp_action[0]
             self._opponent_controller.current_action = int(opp_action)
 
-        cd_before = self.agent.cooldown # >0 means a FIRE action can't actually shoot this step
+        cd_before = self.agent.cooldown
         total_reward = 0.0
         damage_taken_dec = 0.0
         terminated = truncated = False
@@ -165,7 +210,7 @@ class ArenaBrawlEnv(gym.Env):
             if terminated or truncated:
                 break
 
-        if not terminated and not truncated:
+        if not terminated and not truncated and not self.aim_practice:
             total_reward += self._behaviour_rewards(int(action), cd_before, damage_taken_dec)
 
         return self._get_obs(self.agent, self.opponent), total_reward, terminated, truncated, {}
@@ -182,14 +227,12 @@ class ArenaBrawlEnv(gym.Env):
         dist = math.hypot(dx, dy)
         aimed = dist > 0 and (self.agent.last_direction.x * (dx/dist) + self.agent.last_direction.y * (dy/dist)) >= _AIM_DOT
 
-        # offense discovery: +0.5 ONCE when one of my hazards first reaches the opponent
         for p in self.agent.projectiles:
             if p.get("alive") and "x" in p and not p.get("_prox_reward"):
                 if math.hypot(p["x"] - self.opponent.x, p["y"] - self.opponent.y) < _PROX_RADIUS:
                     r += _R_PROXIMITY
                     p["_prox_reward"] = True
 
-        # dodge: +0.5 ONCE when an incoming aimed hazard that threatened me passes without a hit
         for p in self.opponent.projectiles:
             if not p.get("alive") or "x" not in p:
                 continue
@@ -203,14 +246,12 @@ class ArenaBrawlEnv(gym.Env):
                 r += _R_DODGE
                 p["_dodge_reward"] = True
 
-        # anti-camp: penalize barely moving over the window (catches jitter-in-place, not just idle)
         self._pos_history.append((self.agent.x, self.agent.y))
         if len(self._pos_history) >= _STATIC_WINDOW:
             ox, oy = self._pos_history[0]
             if math.hypot(self.agent.x - ox, self.agent.y - oy) < _STATIC_MIN_DISP:
                 r -= _R_STATIC
 
-        # shoot-then-reposition: reward a move shortly after an aimed shot
         if fired_shot and aimed:
             self._fire_move_counter = _FIRE_MOVE_WINDOW
         elif self._fire_move_counter > 0:
@@ -220,7 +261,6 @@ class ArenaBrawlEnv(gym.Env):
             else:
                 self._fire_move_counter -= 1
 
-        # (5) don't go quiet: penalize not firing when able to, for too long
         if fired_shot:
             self._since_fire = 0
         else:
@@ -264,8 +304,6 @@ class ArenaBrawlEnv(gym.Env):
         opponent_vx = o.last_direction.x * 0.5 + 0.5
         opponent_vy = o.last_direction.y * 0.5 + 0.5
 
-        # distance RELATIVE TO AGENT ABILITY RANGE (not the arena): 0.5 = at the edge of my range,
-        # <0.5 = in range (I can hit), 1.0 = far out of range. Role-aware "am I close enough to attack?"
         dxo = p.x - o.x
         dyo = p.y - o.y
         dist = math.hypot(dxo, dyo)
@@ -273,8 +311,6 @@ class ArenaBrawlEnv(gym.Env):
         range_ratio = np.clip(dist / (2.0 * rng), 0.0, 1.0) if rng > 0 else 1.0
 
         h1x, h1y, h1vx, h1vy, h2x, h2y, h2vx, h2vy = self._get_hazards(p, o)
-
-        # get notified if the opponent is aiming at me - useful for dodging
         
         opp_aiming = 0.0
         if dist > 0 and o.cooldown <= 0:
@@ -317,4 +353,3 @@ class ArenaBrawlEnv(gym.Env):
         h2vx = hazards[1][3] if len(hazards) > 1 else 0.5
         h2vy = hazards[1][4] if len(hazards) > 1 else 0.5
         return h1x, h1y, h1vx, h1vy, h2x, h2y, h2vx, h2vy
-        
